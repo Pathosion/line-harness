@@ -15,9 +15,6 @@ interface Props {
   initialChannelId: string
   initialLoginChannelId: string | null
   initialLiffId: string | null
-  initialOgSiteName?: string | null
-  initialOgDefaultDescription?: string | null
-  initialOgDefaultImageUrl?: string | null
   onClose: () => void
   onSaved: () => void
 }
@@ -33,9 +30,6 @@ export default function AccountEditModal({
   initialChannelId,
   initialLoginChannelId,
   initialLiffId,
-  initialOgSiteName = null,
-  initialOgDefaultDescription = null,
-  initialOgDefaultImageUrl = null,
   onClose,
   onSaved,
 }: Props) {
@@ -45,9 +39,6 @@ export default function AccountEditModal({
     channelId: initialChannelId,
     loginChannelId: initialLoginChannelId ?? '',
     liffId: initialLiffId ?? '',
-    ogSiteName: initialOgSiteName,
-    ogDefaultDescription: initialOgDefaultDescription,
-    ogDefaultImageUrl: initialOgDefaultImageUrl,
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -100,17 +91,6 @@ export default function AccountEditModal({
 
     if ((state.liffId.trim() || null) !== (initialLiffId ?? null)) {
       payload.liffId = state.liffId.trim() || null
-    }
-
-    // OGP brand settings: always send when they differ from initial values
-    if (state.ogSiteName !== initialOgSiteName) {
-      payload.ogSiteName = state.ogSiteName
-    }
-    if (state.ogDefaultDescription !== initialOgDefaultDescription) {
-      payload.ogDefaultDescription = state.ogDefaultDescription
-    }
-    if (state.ogDefaultImageUrl !== initialOgDefaultImageUrl) {
-      payload.ogDefaultImageUrl = state.ogDefaultImageUrl
     }
 
     if (Object.keys(payload).length === 0) {

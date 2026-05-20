@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import Header from '@/components/layout/header'
-import { api, bookingApi, type BookingMenu } from '@/lib/api'
-import type { Tag } from '@line-crm/shared'
+import { bookingApi, type BookingMenu } from '@/lib/api'
 import { useAccount } from '@/contexts/account-context'
 
 const EMPTY: Partial<BookingMenu> = {
@@ -16,35 +15,14 @@ const EMPTY: Partial<BookingMenu> = {
   base_price: 5000,
   sort_order: 0,
   is_active: 1,
-  auto_tag_id: null,
 }
 
 export default function MenusPage() {
-  const { selectedAccountId, selectedAccount } = useAccount()
+  const { selectedAccountId } = useAccount()
   const [items, setItems] = useState<BookingMenu[]>([])
   const [editing, setEditing] = useState<Partial<BookingMenu> | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // copy 状態は menu.id 単位で持つ。複数メニューを連続でコピーしたとき
-  // 直近にコピーした行だけ「コピー済」が出る。
-  const [copiedMenuId, setCopiedMenuId] = useState<string | null>(null)
-  const [tags, setTags] = useState<Tag[]>([])
-
-  const liffId = selectedAccount?.liffId ?? null
-
-  async function copyMenuUrl(menuId: string) {
-    if (!liffId) return
-    const url = `https://liff.line.me/${liffId}/?page=salon-book&menu_id=${menuId}`
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopiedMenuId(menuId)
-      setTimeout(() => {
-        setCopiedMenuId((cur) => (cur === menuId ? null : cur))
-      }, 2000)
-    } catch {
-      window.prompt('コピーしてください:', url)
-    }
-  }
 
   const load = useCallback(async () => {
     if (!selectedAccountId) return
@@ -66,21 +44,6 @@ export default function MenusPage() {
   useEffect(() => {
     load()
   }, [load])
-
-  useEffect(() => {
-    let cancelled = false
-    api.tags
-      .list()
-      .then((r) => {
-        if (!cancelled && r.success) setTags(r.data)
-      })
-      .catch(() => {
-        // タグ取得失敗時はセレクタが空になるが、メニュー編集自体は継続可能。
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   async function save(m: Partial<BookingMenu>) {
     if (!selectedAccountId) return
@@ -182,25 +145,6 @@ export default function MenusPage() {
                         <Link href={`/booking/menus/staff?menu_id=${m.id}`} className="text-blue-600 hover:underline">
                           スタッフ割当
                         </Link>
-                        {!liffId ? (
-                          <span className="text-gray-300" title="LIFF ID 未設定">専用URL</span>
-                        ) : !m.is_active ? (
-                          // is_active=0 のメニューは /api/liff/booking/menus が
-                          // 返さないので、URL を送っても LIFF は解決失敗して
-                          // 通常のメニュー一覧に fallback する。間違って「指定メニュー
-                          // 直通」のつもりで送って別メニュー予約されるのを防ぐため、
-                          // 有効化されるまでコピー不可にする。
-                          <span className="text-gray-300" title="メニューを有効化するとコピーできます">専用URL</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => copyMenuUrl(m.id)}
-                            className="text-blue-600 hover:underline"
-                            title={`https://liff.line.me/${liffId}/?page=salon-book&menu_id=${m.id}`}
-                          >
-                            {copiedMenuId === m.id ? '✓ コピー済' : '専用URL'}
-                          </button>
-                        )}
                         <button onClick={() => remove(m.id)} className="text-red-600 hover:underline">削除</button>
                       </div>
                     </td>
@@ -212,19 +156,17 @@ export default function MenusPage() {
         </div>
       )}
 
-      {editing && <Modal menu={editing} tags={tags} onSave={save} onClose={() => setEditing(null)} />}
+      {editing && <Modal menu={editing} onSave={save} onClose={() => setEditing(null)} />}
     </div>
   )
 }
 
 function Modal({
   menu,
-  tags,
   onSave,
   onClose,
 }: {
   menu: Partial<BookingMenu>
-  tags: Tag[]
   onSave: (m: Partial<BookingMenu>) => Promise<void>
   onClose: () => void
 }) {
@@ -232,7 +174,7 @@ function Modal({
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
-  function set<K extends keyof BookingMenu>(k: K, v: BookingMenu[K] | string | null) {
+  function set<K extends keyof BookingMenu>(k: K, v: BookingMenu[K] | string) {
     setForm({ ...form, [k]: v })
   }
 
@@ -306,23 +248,6 @@ function Modal({
               onChange={(v) => set('sort_order', v)}
             />
           </div>
-          <Field label="予約申込時に自動付与するタグ">
-            <select
-              value={form.auto_tag_id ?? ''}
-              onChange={(e) => set('auto_tag_id', e.target.value === '' ? null : e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-            >
-              <option value="">— なし —</option>
-              {tags.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-gray-500">
-              このメニューが予約されると、申込者の友だちに自動でこのタグが付きます。タグは既存のものから選択してください (友だち画面 / シナリオ等で使われているタグ)。
-            </p>
-          </Field>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

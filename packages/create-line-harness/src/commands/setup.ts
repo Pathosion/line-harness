@@ -744,25 +744,38 @@ ON CONFLICT(channel_id) DO UPDATE SET
     "セットアップ完了！",
   );
 
-  // Save config for future updates (separate from setup state)
+  // Save config for future updates (separate from setup state).
+  // Writes BOTH legacy field names (for older update.ts versions) and the
+  // new Task 22 names (so future `npx create-line-harness update` runs
+  // don't have to prompt for missing fields). When we don't actually know
+  // a new-name value (e.g. liffProject — current setup hosts LIFF via
+  // Workers Assets, not a separate Pages project), we leave it undefined
+  // and let update.ts prompt for it on first upgrade.
   const configPath = join(repoDir, ".line-harness-config.json");
-  writeFileSync(
-    configPath,
-    JSON.stringify(
-      {
-        projectName: state.projectName,
-        workerName: state.workerName,
-        workerUrl: state.workerUrl,
-        adminUrl: state.adminUrl,
-        d1DatabaseName: state.d1DatabaseName,
-        d1DatabaseId: state.d1DatabaseId,
-        r2BucketName: state.r2BucketName,
-        accountId: state.accountId,
-      },
-      null,
-      2,
-    ) + "\n",
-  );
+  const adminPublicUrl = state.adminUrl;
+  const workerPublicUrl = state.workerUrl;
+  const fullConfig: Record<string, unknown> = {
+    // Legacy fields (kept for backwards compatibility with older update.ts)
+    projectName: state.projectName,
+    accountId: state.accountId,
+    adminUrl: state.adminUrl,
+    workerUrl: state.workerUrl,
+    workerName: state.workerName,
+    d1DatabaseName: state.d1DatabaseName,
+    d1DatabaseId: state.d1DatabaseId,
+    r2BucketName: state.r2BucketName,
+    // New fields (required by Task 22 update.ts)
+    cfAccountId: state.accountId,
+    workerPublicUrl,
+    adminProject: adminProjectName,
+    adminPublicUrl,
+    // liffProject/liffPublicUrl: intentionally omitted — current setup
+    // serves LIFF from the Worker via [assets], not a separate Pages
+    // project. update.ts will prompt for these on first upgrade.
+    manifestUrl:
+      "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json",
+  };
+  writeFileSync(configPath, JSON.stringify(fullConfig, null, 2) + "\n");
 
   // Clean up state file on success
   const statePath = getStatePath(repoDir);

@@ -1,31 +1,20 @@
 import { LineClient } from '@line-crm/line-sdk';
 
 export type EventNotificationKind =
-  | 'received_pending'
-  | 'received_confirmed'
-  | 'confirmed'
-  | 'rejected'
-  | 'cancelled_by_admin'
-  | 'reminder_day_before'
-  | 'reminder_hours_before';
+  | 'received_pending'      // 受付（承認制ON、未承認段階）
+  | 'received_confirmed'    // 受付＝即時確定
+  | 'confirmed'             // 後追い承認で確定
+  | 'rejected'              // 拒否
+  | 'cancelled_by_admin'    // 運営側でキャンセル
+  | 'reminder_day_before'   // 前日 18:00 JST
+  | 'reminder_hours_before';// 開始 N 時間前
 
 export interface EventNotificationContext {
   eventName: string;
-  startsAtJst: string;
+  startsAtJst: string; // 例: "2026-06-01 10:00"
   venueName?: string | null;
   venueUrl?: string | null;
   hoursBefore?: number;
-  // 確定系 (received_confirmed / confirmed) の末尾に追記。空 / null は何もしない。
-  confirmationExtra?: string | null;
-  // リマインド系 (reminder_day_before / reminder_hours_before) の末尾に追記。
-  reminderExtra?: string | null;
-}
-
-function appendExtra(base: string, extra: string | null | undefined): string {
-  if (!extra) return base;
-  const trimmed = extra.trim();
-  if (trimmed.length === 0) return base;
-  return `${base}\n\n${trimmed}`;
 }
 
 export function renderEventNotificationText(
@@ -39,27 +28,18 @@ export function renderEventNotificationText(
     case 'received_pending':
       return `イベント申込みを受け付けました。${detail}\n\n運営の承認をお待ちください。`;
     case 'received_confirmed':
-      return appendExtra(
-        `イベント予約が確定しました。${detail}\n\n変更・キャンセルは予約履歴画面からお願いします。`,
-        ctx.confirmationExtra,
-      );
+      return `イベント予約が確定しました。${detail}\n\n変更・キャンセルは予約履歴画面からお願いします。`;
     case 'confirmed':
-      return appendExtra(
-        `イベント予約が確定しました。${detail}\n\n変更・キャンセルは予約履歴画面からお願いします。`,
-        ctx.confirmationExtra,
-      );
+      return `イベント予約が確定しました。${detail}\n\n変更・キャンセルは予約履歴画面からお願いします。`;
     case 'rejected':
       return `申し訳ございません、今回のイベント予約はお受けできませんでした。${detail}`;
     case 'cancelled_by_admin':
       return `運営側でイベント予約をキャンセルさせていただきました。${detail}\n\n詳細は LINE にてご連絡ください。`;
     case 'reminder_day_before':
-      return appendExtra(`【リマインド】明日イベントが開催されます。${detail}`, ctx.reminderExtra);
+      return `【リマインド】明日イベントが開催されます。${detail}`;
     case 'reminder_hours_before': {
       const hours = ctx.hoursBefore ?? 0;
-      return appendExtra(
-        `【リマインド】まもなくイベント開始です（あと ${hours} 時間）。${detail}`,
-        ctx.reminderExtra,
-      );
+      return `【リマインド】まもなくイベント開始です（あと ${hours} 時間）。${detail}`;
     }
   }
 }

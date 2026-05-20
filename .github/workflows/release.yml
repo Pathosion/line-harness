@@ -1,0 +1,226 @@
+name: Release
+
+# Tag-driven release pipeline.
+#
+# Trigger: any annotated/lightweight tag matching `v*.*.*` (e.g. `v0.1.0-rc1`).
+#
+# Pipeline:
+#   1. Install deps (frozen lockfile).
+#   2. Run unit tests (scripts/* + per-package).
+#   3. Migration safety check (additive-only policy).
+#   4. Build Worker, Admin, LIFF.
+#   5. Compute SHA256 hashes via inject-version, then rebuild Worker with
+#      _version.ts embedded so /_version reflects the shipping bundle.
+#   6. Produce `bundle.tar.gz` via scripts/release/build-bundle.ts.
+#   7. Generate `release-entry.json` (version, hashes, sizes, migrations,
+#      required_secrets, min_from_version).
+#   8. Pull previous `release-manifest.json` from the latest existing
+#      release (if any), merge the new entry, write the updated manifest.
+#   9. Publish a **draft** GitHub Release with all three artifacts.
+#      Drafts gate human review per SPEC §13 before the rollout flow
+#      considers the version "shipping".
+#
+# Required secrets for downstream installs (documented here so create-line-harness
+# stays in sync):
+#   - LINE_CHANNEL_TOKEN
+#   - LINE_CHANNEL_SECRET
+#   - LINE_LOGIN_CHANNEL_ID
+#   - ADMIN_API_KEY
+#   - LIFF_URL
+#
+# This workflow itself only needs the default `GITHUB_TOKEN` to create a
+# draft Release — no Cloudflare credentials are required. Deploy workflows
+# are intentionally separate.
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Resolve version from tag
+        id: version
+        run: |
+          # Strip the leading "v" — manifest entries use plain semver.
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Migration safety check
+        run: pnpm tsx scripts/check-migrations.ts
+
+      - name: Run unit tests (scripts)
+        run: pnpm test:scripts
+
+      - name: Build shared workspace packages
+        run: pnpm --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db build
+
+      - name: Build Admin (Next.js static export)
+        # Placeholder URL gets baked into the bundle. End users replace it at
+        # install time (Phase 2 will introduce runtime config to avoid this).
+        env:
+          NEXT_PUBLIC_API_URL: "https://__LH_WORKER_URL__"
+        run: pnpm --filter web build
+
+      - name: Build LIFF
+        # apps/liff exists in the workspace; if its build is not yet
+        # green this step will surface that, which is preferable to
+        # silently shipping a stale dist.
+        run: pnpm --filter liff build
+
+      - name: Build Worker (first pass — produces dist for hashing)
+        run: pnpm --filter worker build
+
+      - name: Compute hashes + inject _version.ts
+        id: hashes
+        run: |
+          # Worker bundle path produced by @cloudflare/vite-plugin —
+          # the plugin emits under dist/<wrangler-name-with-underscores>/.
+          json=$(pnpm tsx apps/worker/scripts/inject-version.ts \
+            --version "${{ steps.version.outputs.version }}" \
+            --worker apps/worker/dist/line_harness/index.js \
+            --admin apps/web/out \
+            --liff apps/liff/dist \
+            --out apps/worker/src/_version.ts)
+
+          echo "json<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$json" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          # Extract individual hashes for the manifest entry.
+          worker_hash=$(node -e "console.log(JSON.parse(process.argv[1]).workerHash)" "$json")
+          admin_hash=$(node -e "console.log(JSON.parse(process.argv[1]).adminHash)" "$json")
+          liff_hash=$(node -e "console.log(JSON.parse(process.argv[1]).liffHash)" "$json")
+          released_at=$(node -e "console.log(JSON.parse(process.argv[1]).releasedAt)" "$json")
+
+          echo "worker_hash=${worker_hash}" >> "$GITHUB_OUTPUT"
+          echo "admin_hash=${admin_hash}" >> "$GITHUB_OUTPUT"
+          echo "liff_hash=${liff_hash}" >> "$GITHUB_OUTPUT"
+          echo "released_at=${released_at}" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild Worker (with embedded _version.ts)
+        run: pnpm --filter worker build
+
+      - name: Build release bundle
+        run: |
+          mkdir -p dist
+          pnpm tsx scripts/release/build-bundle.ts \
+            --worker-js apps/worker/dist/line_harness/index.js \
+            --admin apps/web/out \
+            --liff apps/liff/dist \
+            --migrations packages/db/migrations \
+            --out dist/bundle.tar.gz
+
+      - name: Compute bundle size
+        id: bundle
+        run: |
+          size=$(stat -c%s dist/bundle.tar.gz)
+          echo "size=${size}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine new migrations for this release
+        id: migrations
+        run: |
+          # For v0.1.0-rc1 (first tagged release) the manifest is empty —
+          # we list only migrations introduced by Phase 1 (>=041).
+          # Subsequent releases should diff against the previous tag; this
+          # is intentionally conservative for the initial cut.
+          migrations_json=$(ls packages/db/migrations \
+            | awk '/^04[1-9]_|^0[5-9][0-9]_|^[1-9][0-9][0-9]_/' \
+            | jq -R . | jq -sc .)
+          if [ -z "$migrations_json" ] || [ "$migrations_json" = "null" ]; then
+            migrations_json="[]"
+          fi
+          echo "list=${migrations_json}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate release-entry.json
+        run: |
+          bundle_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.version.outputs.tag }}/bundle.tar.gz"
+          changelog_url="https://github.com/${GITHUB_REPOSITORY}/blob/${{ steps.version.outputs.tag }}/CHANGELOG.md"
+
+          # min_from_version: 0.0.0 for the first release so the upgrade
+          # flow accepts any prior install. Bump for breaking releases
+          # that require a prior version.
+          cat > release-entry.json <<JSON
+          {
+            "version": "${{ steps.version.outputs.version }}",
+            "released_at": "${{ steps.hashes.outputs.released_at }}",
+            "worker_hash": "${{ steps.hashes.outputs.worker_hash }}",
+            "admin_hash": "${{ steps.hashes.outputs.admin_hash }}",
+            "liff_hash": "${{ steps.hashes.outputs.liff_hash }}",
+            "bundle_url": "${bundle_url}",
+            "bundle_size_bytes": ${{ steps.bundle.outputs.size }},
+            "required_secrets": [
+              "LINE_CHANNEL_TOKEN",
+              "LINE_CHANNEL_SECRET",
+              "LINE_LOGIN_CHANNEL_ID",
+              "ADMIN_API_KEY",
+              "LIFF_URL"
+            ],
+            "new_required_secrets": [],
+            "migrations": ${{ steps.migrations.outputs.list }},
+            "changelog_url": "${changelog_url}",
+            "min_from_version": "0.0.0"
+          }
+          JSON
+
+          cat release-entry.json
+
+      - name: Fetch previous release-manifest.json (if any)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Pull the manifest from the most recent published release that
+          # isn't this tag. If none exists, start fresh — update-manifest.ts
+          # initialises { schema_version: 1, latest, releases: [] } on first
+          # write.
+          prev_tag=$(gh release list --limit 5 --json tagName --jq '.[].tagName' 2>/dev/null \
+            | grep -v "^${{ steps.version.outputs.tag }}$" \
+            | head -n 1 || true)
+
+          if [ -n "$prev_tag" ]; then
+            echo "Pulling manifest from previous release: $prev_tag"
+            gh release download "$prev_tag" --pattern 'release-manifest.json' \
+              --output release-manifest.json 2>/dev/null \
+              || echo "No release-manifest.json on $prev_tag — starting fresh."
+          else
+            echo "No previous release — starting fresh manifest."
+          fi
+
+      - name: Update release-manifest.json
+        run: |
+          pnpm tsx scripts/release/update-manifest.ts \
+            --manifest release-manifest.json \
+            --release release-entry.json
+          cat release-manifest.json
+
+      - name: Publish draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/bundle.tar.gz
+            release-manifest.json
+            release-entry.json

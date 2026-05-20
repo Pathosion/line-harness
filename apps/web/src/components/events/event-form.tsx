@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { eventsApi, type EventDetail, type EventSlot } from '@/lib/api'
 import ImageUploader from '@/components/shared/image-uploader'
-import OgEditor from '@/components/shared/og-editor'
 import { useAccount } from '@/contexts/account-context'
 import { generateBulkSlots, type BulkSlotInput } from './bulk-slot-generator'
 
@@ -31,11 +30,6 @@ const DEFAULT_DRAFT: EventDetail = {
   reminder_hours_before: null,
   is_published: 0,
   sort_order: 0,
-  confirmation_message_extra: null,
-  reminder_message_extra: null,
-  og_title: null,
-  og_description: null,
-  og_image_url: null,
 }
 
 export interface EventFormProps {
@@ -78,12 +72,8 @@ export default function EventForm({ accountId, eventId }: EventFormProps) {
   }
 
   const liffId = selectedAccount?.liffId ?? null
-  // single mode の公開 URL。Worker `/o` は ref 解決・追跡なしで liffId を直接
-  // 受けるため、LINE 内配信も SNS 配信もこの 1 本で完結する。`liff.line.me`
-  // 直貼りは OpenChat / IG DM 等で削除されるが、`/o` 経由なら通る。
-  const workerBase = process.env.NEXT_PUBLIC_API_URL ?? ''
-  const liffUrl = eventId && liffId && workerBase
-    ? `${workerBase}/o?liffId=${encodeURIComponent(liffId)}&page=event&id=${encodeURIComponent(eventId)}`
+  const liffUrl = eventId && liffId
+    ? `https://liff.line.me/${liffId}/?page=event&id=${eventId}`
     : null
 
   useEffect(() => {
@@ -160,11 +150,6 @@ export default function EventForm({ accountId, eventId }: EventFormProps) {
         reminder_hours_before: draft.reminder_hours_before,
         is_published: draft.is_published,
         sort_order: draft.sort_order,
-        confirmation_message_extra: draft.confirmation_message_extra,
-        reminder_message_extra: draft.reminder_message_extra,
-        og_title: draft.og_title,
-        og_description: draft.og_description,
-        og_image_url: draft.og_image_url,
         target_type: targetType,
         // Worker は account_ids を配列で受け取って内部で JSON.stringify するので、
         // ここでは配列のまま送る (Partial<EventDetail> の union 型を許容)
@@ -261,7 +246,7 @@ export default function EventForm({ accountId, eventId }: EventFormProps) {
             : []
 
         if (targetType === 'multi-account-dedup') {
-          const templateUrl = `https://liff.line.me/{{liff_id}}/?page=event&id=${eventId}&liffId={{liff_id}}`
+          const templateUrl = `https://liff.line.me/{{liff_id}}/?page=event&id=${eventId}`
           const targetAccounts = accounts.filter((a) => accountIdsArr.includes(a.id))
           return (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4 space-y-4">
@@ -302,7 +287,7 @@ export default function EventForm({ accountId, eventId }: EventFormProps) {
                         </div>
                       )
                     }
-                    const url = `https://liff.line.me/${acct.liffId}/?page=event&id=${eventId}&liffId=${acct.liffId}`
+                    const url = `https://liff.line.me/${acct.liffId}/?page=event&id=${eventId}`
                     return (
                       <div key={a.id} className="flex items-center gap-2">
                         <span className="text-xs text-gray-600 min-w-[80px] truncate">
@@ -350,7 +335,7 @@ export default function EventForm({ accountId, eventId }: EventFormProps) {
                 </button>
               </div>
               <p className="text-xs text-blue-700 mt-2">
-                LINE / OpenChat / IG DM どこでも貼れます。受信者がタップすると LINE で予約画面が開きます。
+                この URL をブロードキャストやシナリオで友だちに送ると LINE 内で予約画面が開きます。
               </p>
             </div>
           )
@@ -1129,52 +1114,6 @@ function PublishTab({
         </select>
       </div>
 
-      {/* 予約者向けカスタムメッセージ追記 */}
-      <div className="border-t border-gray-200 pt-5 space-y-4">
-        <div>
-          <div className="text-sm font-medium text-gray-900 mb-1">予約者向けカスタムメッセージ</div>
-          <p className="text-xs text-gray-500">
-            予約者だけに届く LINE 通知の末尾に追加されます（Zoom URL など）。空欄ならデフォルト文言のみ。
-          </p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            ✉️ 予約確定メッセージへの追記
-            <span className="ml-2 text-xs text-gray-400">
-              {(draft.confirmation_message_extra ?? '').length} / 2,000
-            </span>
-          </label>
-          <textarea
-            value={draft.confirmation_message_extra ?? ''}
-            onChange={(e) => update('confirmation_message_extra', e.target.value || null)}
-            rows={3}
-            maxLength={2000}
-            placeholder="例: 当日の Zoom URL: https://us02web.zoom.us/j/..."
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <p className="text-xs text-gray-500 mt-1">確定通知（即時 / 後追い承認）の末尾に追加</p>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
-            🔔 リマインドメッセージへの追記
-            <span className="ml-2 text-xs text-gray-400">
-              {(draft.reminder_message_extra ?? '').length} / 2,000
-            </span>
-          </label>
-          <textarea
-            value={draft.reminder_message_extra ?? ''}
-            onChange={(e) => update('reminder_message_extra', e.target.value || null)}
-            rows={3}
-            maxLength={2000}
-            placeholder="例: 開始 10 分前に同じ URL からご入室ください"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <p className="text-xs text-gray-500 mt-1">前日 / N 時間前のリマインド末尾に追加</p>
-        </div>
-      </div>
-
       <hr className="border-gray-200" />
 
       <div>
@@ -1211,22 +1150,6 @@ function PublishTab({
             : '保存しても友だちには表示されません。'}
         </p>
       </div>
-
-      <OgEditor
-        value={{
-          ogTitle: draft.og_title,
-          ogDescription: draft.og_description,
-          ogImageUrl: draft.og_image_url,
-        }}
-        onChange={(v) => {
-          update('og_title', v.ogTitle)
-          update('og_description', v.ogDescription)
-          update('og_image_url', v.ogImageUrl)
-        }}
-        autoTitle={draft.name || undefined}
-        autoDescription={draft.description ?? undefined}
-        autoImageUrl={draft.image_url ?? undefined}
-      />
     </div>
   )
 }

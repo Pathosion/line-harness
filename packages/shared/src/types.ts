@@ -394,12 +394,6 @@ export interface LineAccount {
   role: string | null;
   /** サイドバーアカ切替および /accounts ページの並び順 (drag-drop で更新). */
   displayOrder: number;
-  /** OGP: og:site_name。空欄時は name がフォールバックとして使われる。 */
-  ogSiteName: string | null;
-  /** OGP: アカウント全体のデフォルト og:description。個別レコードで未設定時に使用。 */
-  ogDefaultDescription: string | null;
-  /** OGP: アカウント全体のデフォルト og:image。個別レコードで未設定時に使用。 */
-  ogDefaultImageUrl: string | null;
 }
 
 // -----------------------------------------------------------------------------
@@ -825,10 +819,6 @@ export interface Automation {
   actions: AutomationAction[];
   isActive: boolean;
   priority: number;
-  // null = global automation (fires for every account, per event-bus.ts:149).
-  // UUID = bound to that line_account_id. Surfaced so account-scoped UIs can
-  // distinguish a rule that affects every account from one they own.
-  lineAccountId: string | null;
   createdAt: string;
   updatedAt: string;
 }

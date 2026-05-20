@@ -7,6 +7,7 @@ on:
       - 'packages/db/**'
       - 'packages/shared/**'
       - 'packages/line-sdk/**'
+      - 'packages/update-engine/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/worker-ci.yml'
   push:
@@ -16,6 +17,7 @@ on:
       - 'packages/db/**'
       - 'packages/shared/**'
       - 'packages/line-sdk/**'
+      - 'packages/update-engine/**'
       - 'pnpm-lock.yaml'
       - '.github/workflows/worker-ci.yml'
   workflow_dispatch:
@@ -37,7 +39,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db build
+      - run: pnpm --filter @line-crm/shared --filter @line-crm/line-sdk --filter @line-crm/db --filter @line-harness/update-engine build
       - run: pnpm --filter worker typecheck
       - run: pnpm --filter worker test
       - run: pnpm --filter worker build

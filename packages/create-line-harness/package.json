@@ -11,8 +11,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "dev": "tsup --watch",
-    "typecheck": "tsc --noEmit"
+    "dev": "tsup --watch"
   },
   "keywords": [
     "line",
@@ -25,16 +24,13 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/Shudesu/line-harness-oss.git",
+    "url": "https://github.com/Shudesu/line-harness.git",
     "directory": "packages/create-line-harness"
-  },
-  "homepage": "https://github.com/Shudesu/line-harness-oss#readme",
-  "bugs": {
-    "url": "https://github.com/Shudesu/line-harness-oss/issues"
   },
   "license": "MIT",
   "dependencies": {
     "@clack/prompts": "^0.9.1",
+    "@line-harness/update-engine": "workspace:*",
     "execa": "^9.5.2",
     "picocolors": "^1.1.1"
   },

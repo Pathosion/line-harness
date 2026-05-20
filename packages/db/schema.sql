@@ -236,20 +236,17 @@ CREATE INDEX IF NOT EXISTS idx_users_external_id ON users (external_id);
 -- Round 2: LINE Account Management (Multi-Account)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS line_accounts (
-  id                     TEXT PRIMARY KEY,
-  channel_id             TEXT NOT NULL UNIQUE,
-  name                   TEXT NOT NULL,
-  channel_access_token   TEXT NOT NULL,
-  channel_secret         TEXT NOT NULL,
-  is_active              INTEGER NOT NULL DEFAULT 1,
-  country                TEXT,
-  role                   TEXT,
-  display_order          INTEGER NOT NULL DEFAULT 0,
-  og_site_name           TEXT,
-  og_default_image_url   TEXT,
-  og_default_description TEXT,
-  created_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
+  id                   TEXT PRIMARY KEY,
+  channel_id           TEXT NOT NULL UNIQUE,
+  name                 TEXT NOT NULL,
+  channel_access_token TEXT NOT NULL,
+  channel_secret       TEXT NOT NULL,
+  is_active            INTEGER NOT NULL DEFAULT 1,
+  country              TEXT,
+  role                 TEXT,
+  display_order        INTEGER NOT NULL DEFAULT 0,
+  created_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at           TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_line_accounts_display_order
@@ -672,11 +669,9 @@ CREATE TABLE IF NOT EXISTS menus (
   sort_order            INTEGER NOT NULL DEFAULT 0,
   is_active             INTEGER NOT NULL DEFAULT 1,
   deleted_at            TEXT,
-  auto_tag_id           TEXT,                  -- 予約申込時に friend に自動付与するタグ
   created_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
   updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
-  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id),
-  FOREIGN KEY (auto_tag_id) REFERENCES tags(id) ON DELETE SET NULL
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
 );
 CREATE INDEX IF NOT EXISTS idx_menus_account_sort ON menus (line_account_id, sort_order);
 

@@ -98,7 +98,7 @@ pnpm deploy:worker
 ### wrangler.toml 設定
 
 ```toml
-name = "your-worker-name"
+name = "line-crm-worker"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 workers_dev = true
@@ -106,7 +106,7 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "line-crm"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "b2712617-31c4-47c2-accd-4eec906c44ce"
 
 [triggers]
 crons = ["*/5 * * * *"]
@@ -188,7 +188,7 @@ pnpm deploy:web
 
 # 2. Cloudflare Pages にデプロイ
 # Dashboard から GitHub リポジトリを接続、または:
-wrangler pages deploy apps/web/.next --project-name=your-admin-name
+wrangler pages deploy apps/web/.next --project-name=line-crm-admin
 ```
 
 ### Pages 設定
@@ -229,14 +229,14 @@ https://line-harness.your-account.workers.dev
 
 ```bash
 pnpm db:migrate
-# => wrangler d1 execute your-database --file=packages/db/schema.sql
+# => wrangler d1 execute line-crm --file=packages/db/schema.sql
 ```
 
 ### ローカル
 
 ```bash
 pnpm db:migrate:local
-# => wrangler d1 execute your-database --file=packages/db/schema.sql --local
+# => wrangler d1 execute line-crm --file=packages/db/schema.sql --local
 ```
 
 スキーマは `CREATE TABLE IF NOT EXISTS` を使用しているため、冪等に実行可能。既存テーブルはスキップされる。
@@ -279,7 +279,7 @@ wrangler d1 create line-crm
 
 `workers_dev = true` の場合、自動的に割り当てられる:
 ```
-https://your-worker-name.{account}.workers.dev
+https://line-crm-worker.{account}.workers.dev
 ```
 
 ### カスタムドメイン
@@ -299,7 +299,7 @@ routes = [
 
 LINE Developers Console > Messaging API > Webhook URL:
 ```
-https://your-worker.your-subdomain.workers.dev/webhook
+https://line-crm-worker.line-crm-api.workers.dev/webhook
 ```
 
 ---
@@ -345,14 +345,14 @@ https://your-worker.your-subdomain.workers.dev/webhook
 
 ```bash
 # API ヘルスチェック
-curl https://your-worker.your-subdomain.workers.dev/openapi.json
+curl https://line-crm-worker.line-crm-api.workers.dev/openapi.json
 
 # 認証テスト
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  https://your-worker.your-subdomain.workers.dev/api/friends/count
+  https://line-crm-worker.line-crm-api.workers.dev/api/friends/count
 
 # Swagger UI
-open https://your-worker.your-subdomain.workers.dev/docs
+open https://line-crm-worker.line-crm-api.workers.dev/docs
 ```
 
 ---

@@ -11,13 +11,9 @@ import './styles.css';
 
 let _root: Root | null = null;
 
-function readUrlState(): { view: string | null; peekMode: boolean; menuId: string | null } {
+function readUrlState(): { view: string | null; peekMode: boolean } {
   const params = new URLSearchParams(window.location.search);
-  return {
-    view: params.get('view'),
-    peekMode: params.get('mode') === 'peek',
-    menuId: params.get('menu_id'),
-  };
+  return { view: params.get('view'), peekMode: params.get('mode') === 'peek' };
 }
 
 function App({ ctx }: { ctx: SalonBookingContext }) {
@@ -25,10 +21,6 @@ function App({ ctx }: { ctx: SalonBookingContext }) {
   const initial = readUrlState();
   const [view] = useState(initial.view);
   const [peekMode, setPeekMode] = useState(initial.peekMode);
-  // menu_id ディープリンクは URL から1度だけ読む。お客様が「戻る」で
-  // メニュー選択に戻った後にディープリンクで再ロックされないように、
-  // mount 時点の値だけ Booking に渡す。
-  const [initialMenuId] = useState(initial.menuId);
 
   const headerLabel = view === 'history' ? '予約履歴' : peekMode ? '空き状況' : 'ご予約';
 
@@ -45,11 +37,7 @@ function App({ ctx }: { ctx: SalonBookingContext }) {
           {view === 'history' ? (
             <BookingHistory />
           ) : (
-            <Booking
-              peekMode={peekMode}
-              exitPeek={() => setPeekMode(false)}
-              initialMenuId={initialMenuId}
-            />
+            <Booking peekMode={peekMode} exitPeek={() => setPeekMode(false)} />
           )}
         </main>
       </div>

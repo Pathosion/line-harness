@@ -197,7 +197,7 @@ export default function BroadcastForm({ tags, onSuccess, onCancel }: BroadcastFo
                 onChange={(e) => {
                   const id = e.target.value
                   if (!id) return
-                  const url = `https://liff.line.me/{{liff_id}}/?page=event&id=${id}&liffId={{liff_id}}`
+                  const url = `https://liff.line.me/{{liff_id}}/?page=event&id=${id}`
                   setForm((prev) => ({
                     ...prev,
                     messageContent: prev.messageContent

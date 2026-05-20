@@ -32,9 +32,6 @@ interface LineAccountListItem {
     activeScenarios: number
     messagesThisMonth: number
   }
-  ogSiteName: string | null
-  ogDefaultDescription: string | null
-  ogDefaultImageUrl: string | null
 }
 
 const ccPrompts = [
@@ -106,9 +103,6 @@ export default function AccountsPage() {
         loginChannelId: form.loginChannelId.trim() || null,
         loginChannelSecret: form.loginChannelSecret.trim() || null,
         liffId: form.liffId.trim() || null,
-        ogSiteName: form.ogSiteName?.trim() || null,
-        ogDefaultImageUrl: form.ogDefaultImageUrl?.trim() || null,
-        ogDefaultDescription: form.ogDefaultDescription?.trim() || null,
       })
       if (res.success) {
         setJustCreated({ liffId: form.liffId.trim() || null })
@@ -362,9 +356,6 @@ export default function AccountsPage() {
           initialChannelId={editing.channelId}
           initialLoginChannelId={editing.loginChannelId}
           initialLiffId={editing.liffId}
-          initialOgSiteName={editing.ogSiteName}
-          initialOgDefaultDescription={editing.ogDefaultDescription}
-          initialOgDefaultImageUrl={editing.ogDefaultImageUrl}
           onClose={() => setEditing(null)}
           onSaved={load}
         />

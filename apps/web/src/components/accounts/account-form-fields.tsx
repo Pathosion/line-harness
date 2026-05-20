@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, type ReactNode } from 'react'
-import OgEditor from '@/components/shared/og-editor'
 
 // Shared form field building blocks for the LINE account create / edit flows.
 // Kept as primitives (not a full form) so the create page (single submit) and
@@ -16,10 +15,6 @@ export interface AccountFormState {
   loginChannelId: string
   loginChannelSecret: string
   liffId: string
-  // OGP brand settings (optional — only present/sent when the user edits them)
-  ogSiteName: string | null
-  ogDefaultDescription: string | null
-  ogDefaultImageUrl: string | null
 }
 
 export const emptyAccountFormState: AccountFormState = {
@@ -30,9 +25,6 @@ export const emptyAccountFormState: AccountFormState = {
   loginChannelId: '',
   loginChannelSecret: '',
   liffId: '',
-  ogSiteName: null,
-  ogDefaultDescription: null,
-  ogDefaultImageUrl: null,
 }
 
 // Section: collapsible group of fields. Future "Provider" / "Rich Menu Default"
@@ -125,7 +117,7 @@ export function AccountFormSections({
   // edit so users don't think they can fix a typo here (they'd need to
   // delete + recreate the row to change Channel ID).
   channelIdEditable?: boolean
-  defaultOpen?: { messaging?: boolean; login?: boolean; liff?: boolean; ogp?: boolean }
+  defaultOpen?: { messaging?: boolean; login?: boolean; liff?: boolean }
 }) {
   return (
     <div className="space-y-3">
@@ -209,42 +201,6 @@ export function AccountFormSections({
           onChange={(v) => update({ liffId: v })}
           placeholder="2009624792-XXXXXXXX"
           hint="LINE Developers > Login channel > LIFF タブで作成したものの ID"
-        />
-      </FormSection>
-
-      <FormSection
-        title="ブランド設定（OGP）"
-        description="LINE / X / Facebook のリンクプレビューに使うブランド情報"
-        defaultOpen={defaultOpen?.ogp ?? false}
-      >
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            サイト名（og:site_name）
-          </label>
-          <input
-            type="text"
-            value={state.ogSiteName ?? ''}
-            placeholder={`空欄なら「${state.name || 'アカウント名'}」がフォールバック`}
-            onChange={(e) => update({ ogSiteName: e.target.value || null })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-          />
-          <p className="text-[11px] text-gray-400 mt-1">
-            リンクプレビューでブランド名として表示されます。
-          </p>
-        </div>
-        <OgEditor
-          hideTitle
-          value={{
-            ogTitle: null,
-            ogDescription: state.ogDefaultDescription,
-            ogImageUrl: state.ogDefaultImageUrl,
-          }}
-          onChange={(v) =>
-            update({
-              ogDefaultDescription: v.ogDescription,
-              ogDefaultImageUrl: v.ogImageUrl,
-            })
-          }
         />
       </FormSection>
     </div>

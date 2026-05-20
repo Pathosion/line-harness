@@ -71,13 +71,8 @@ import { messageTemplates } from './routes/message-templates.js';
 import dedupPreview from './routes/dedup-preview.js';
 import { profileRefresh } from './routes/profile-refresh.js';
 import { richMenuGroups } from './routes/rich-menu-groups.js';
-import { isLinkPreviewBot } from './lib/og-bot.js';
-import { buildOgHtml } from './lib/og-html.js';
-import {
-  resolveOgForEvent,
-  resolveOgForForm,
-  resolveOgForAccount,
-} from './lib/og-resolver.js';
+import adminVersion from './routes/admin-version.js';
+import adminUpdate from './routes/admin-update.js';
 
 export type Env = {
   Bindings: {
@@ -96,6 +91,22 @@ export type Env = {
     X_HARNESS_URL?: string;  // Optional: X Harness API URL for account linking
     IG_HARNESS_URL?: string;  // Optional: IG Harness API URL for cross-platform linking
     IG_HARNESS_LINK_SECRET?: string;  // Shared secret for IG Harness link-line webhook
+    // Phase 5 self-update — consumed by /admin/update/*. Defaults live in
+    // wrangler.toml [vars]; secrets (CF_API_TOKEN, ADMIN_API_KEY) come from
+    // `wrangler secret put`. All are optional at the type level so the rest
+    // of the worker still type-checks in test environments that don't set
+    // them; the /admin/update/* route guards on their presence at runtime.
+    ADMIN_API_KEY?: string;
+    CF_API_TOKEN?: string;
+    CF_ACCOUNT_ID?: string;
+    WORKER_NAME?: string;
+    ADMIN_PAGES_PROJECT?: string;
+    LIFF_PAGES_PROJECT?: string;
+    D1_DATABASE_ID?: string;
+    MANIFEST_URL?: string;
+    WORKER_PUBLIC_URL?: string;
+    ADMIN_PUBLIC_URL?: string;
+    LIFF_PUBLIC_URL?: string;
   };
   Variables: {
     staff: { id: string; name: string; role: 'owner' | 'admin' | 'staff' };
@@ -159,6 +170,16 @@ app.route('/', messageTemplates);
 app.route('/', dedupPreview);
 app.route('/', profileRefresh);
 app.route('/', richMenuGroups);
+
+// Phase 5 (upgrade flow) — public build metadata endpoint. Mounted under
+// /admin/ but intentionally unauthenticated: the dashboard fetches /admin/version
+// before login to render the upgrade banner, and the returned hashes are
+// derivable from the deployed bundle. /admin/update/* (Task 18) layers
+// ADMIN_API_KEY middleware on subpaths.
+app.route('/admin', adminVersion);
+// Phase 5 Task 18 — self-update endpoints guarded by x-admin-api-key.
+// authMiddleware skips non-/api/ paths so this router owns its own auth gate.
+app.route('/admin/update', adminUpdate);
 
 // Self-hosted QR code proxy — prevents leaking ref tokens to third-party services
 app.get('/api/qr', async (c) => {
@@ -238,17 +259,6 @@ app.get('/r/:ref', async (c) => {
   if (xh) liffParams.set('xh', xh);
   const ig = c.req.query('ig');
   if (ig) liffParams.set('ig', ig);
-  // LIFF in-app navigation passthrough — OpenChat strips raw liff.line.me
-  // URLs, so we accept `page` / `id` here and forward them to the resolved
-  // LIFF target. Limited to pages whose client initializer enforces the
-  // friend-add gate (initSalonBooking, initEventBooking); page=book/form
-  // would bypass that gate and bypass ref-based attribution, so they are
-  // intentionally excluded until those initializers are unified.
-  const PAGE_PASSTHROUGH_ALLOWED = new Set(['salon-book', 'event', 'event-me']);
-  const page = c.req.query('page');
-  if (page && PAGE_PASSTHROUGH_ALLOWED.has(page)) liffParams.set('page', page);
-  const id = c.req.query('id');
-  if (id) liffParams.set('id', id);
   const liffTarget = liffParams.toString() ? `${liffUrl}?${liffParams.toString()}` : liffUrl;
 
   // Help link carries the *resolved* liff target as `t=` so the help page
@@ -510,236 +520,22 @@ ${longPressBlock}
 </html>`);
 });
 
-// /o — `/r/:ref` の ref 解決・追跡を一切行わない明示 liffId 版の open page。
-// admin UI が OpenChat / IG DM 等で `liff.line.me` を弾かれるチャネル向けに
-// 配布するラップ URL のためのルート。`/r/main` を使うと (a) traffic_pool の
-// ランダム pool account に再解決されて選択中アカウントから外れる、
-// (b) `ref=main` として ref_tracking / friends.ref_code に書き込まれて
-// attribution を汚染する、という 2 つの問題があるため別ルートに分けている。
-// 仕様:
-// - クエリ: liffId (必須, `<digits>-<id>` 形式) / page / id
-// - page は `/r/:ref` と同じ allowlist (salon-book / event / event-me)
-// - mobile UA は「LINEで開く」ボタン、desktop は QR を返す (`/r/:ref` 同等)
-app.get('/o', async (c) => {
-  const liffId = c.req.query('liffId') || '';
-  if (!/^[0-9]+-[A-Za-z0-9]+$/.test(liffId)) {
-    return c.text('Invalid liffId', 400);
-  }
-
-  const liffParams = new URLSearchParams();
-  liffParams.set('liffId', liffId);
-  const PAGE_PASSTHROUGH_ALLOWED = new Set(['salon-book', 'event', 'event-me']);
-  const page = c.req.query('page');
-  if (page && PAGE_PASSTHROUGH_ALLOWED.has(page)) liffParams.set('page', page);
-  const id = c.req.query('id');
-  if (id) liffParams.set('id', id);
-  const liffTarget = `https://liff.line.me/${liffId}?${liffParams.toString()}`;
-
-  const ua = (c.req.header('user-agent') || '').toLowerCase();
-  const isMobile = /iphone|ipad|android|mobile/.test(ua);
-  const isIOS = /iphone|ipad|ipod/.test(ua);
-  const isAndroid = /android/.test(ua);
-
-  if (isMobile) {
-    const liffPath = liffTarget.replace(/^https:\/\//, '');
-    const intentFallback = encodeURIComponent(liffTarget);
-    const androidIntent = `intent://${liffPath}#Intent;scheme=https;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;package=jp.naver.line.android;S.browser_fallback_url=${intentFallback};end`;
-    const buttonHref = isAndroid ? androidIntent : liffTarget;
-    const longPressHint = isIOS
-      ? '<p class="hint">※開かない場合はボタンを<strong>長押し</strong>して「LINEで開く」を選択</p>'
-      : '';
-    return c.html(`<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LINE で開く</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Hiragino Sans','Helvetica Neue',system-ui,sans-serif;background:#f5f7f5;display:flex;justify-content:center;align-items:center;min-height:100vh}
-.card{background:#fff;border-radius:20px;box-shadow:0 2px 20px rgba(0,0,0,0.06);text-align:center;max-width:360px;width:90%;padding:40px 28px 32px;border:1px solid rgba(0,0,0,0.04)}
-.line-icon{width:48px;height:48px;margin:0 auto 20px}
-.line-icon svg{width:48px;height:48px}
-.msg{font-size:15px;color:#444;font-weight:500;margin-bottom:28px;line-height:1.6}
-.btn{display:block;width:100%;padding:16px;border:none;border-radius:12px;font-size:16px;font-weight:700;text-decoration:none;text-align:center;color:#fff;background:#06C755;box-shadow:0 2px 12px rgba(6,199,85,0.2);transition:all .15s}
-.btn:active{transform:scale(0.98);opacity:.9}
-.hint{font-size:11px;color:#888;margin-top:10px;line-height:1.6}
-.hint strong{color:#06C755;font-weight:700}
-</style>
-</head>
-<body>
-<div class="card">
-<div class="line-icon">
-<svg viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="12" fill="#06C755"/><path d="M24 12C17.37 12 12 16.58 12 22.2c0 3.54 2.35 6.65 5.86 8.47-.2.74-.76 2.75-.87 3.17-.14.55.2.54.42.39.18-.12 2.84-1.88 4-2.65.84.13 1.7.22 2.59.22 6.63 0 12-4.58 12-10.2S30.63 12 24 12z" fill="#fff"/></svg>
-</div>
-<p class="msg">LINE で開く</p>
-<a href="${buttonHref}" class="btn">LINEで開く</a>
-${longPressHint}
-</div>
-</body>
-</html>`);
-  }
-
-  return c.html(`<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LINE で開く</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:'Hiragino Sans','Helvetica Neue',system-ui,sans-serif;background:#f5f7f5;display:flex;justify-content:center;align-items:center;min-height:100vh}
-.card{background:#fff;border-radius:20px;box-shadow:0 2px 20px rgba(0,0,0,0.06);text-align:center;max-width:480px;width:90%;padding:48px;border:1px solid rgba(0,0,0,0.04)}
-.line-icon{width:48px;height:48px;margin:0 auto 20px}
-.line-icon svg{width:48px;height:48px}
-.msg{font-size:15px;color:#444;font-weight:500;margin-bottom:32px;line-height:1.6}
-.qr{background:#f9f9f9;border-radius:16px;padding:24px;display:inline-block;margin-bottom:24px;border:1px solid rgba(0,0,0,0.04)}
-.qr img{display:block;width:240px;height:240px}
-.hint{font-size:13px;color:#999;line-height:1.6}
-</style>
-</head>
-<body>
-<div class="card">
-<div class="line-icon">
-<svg viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="12" fill="#06C755"/><path d="M24 12C17.37 12 12 16.58 12 22.2c0 3.54 2.35 6.65 5.86 8.47-.2.74-.76 2.75-.87 3.17-.14.55.2.54.42.39.18-.12 2.84-1.88 4-2.65.84.13 1.7.22 2.59.22 6.63 0 12-4.58 12-10.2S30.63 12 24 12z" fill="#fff"/></svg>
-</div>
-<p class="msg">スマートフォンで QR コードを読み取ってください</p>
-<div class="qr">
-<img src="/api/qr?size=240x240&data=${encodeURIComponent(liffTarget)}" alt="QR Code">
-</div>
-<p class="hint">LINE アプリのカメラまたは<br>スマートフォンのカメラで読み取れます</p>
-</div>
-</body>
-</html>`);
-});
-
 // Convenience redirect for /book path
 app.get('/book', (c) => c.redirect('/?page=book'));
 
-// URL（パス or クエリ）からイベント/フォーム等のレコードを引いて OGP HTML を組み立てる。
-// LIFF アプリの共有 URL は実際には `https://liff.line.me/<LIFF_ID>/?page=event&id=<id>`
-// 形式で、Worker に届くときは pathname が `/`、クエリに `page` `id` `liffId` が乗る。
-// 旧形式の `/events/:id` パスも残しているのでパスマッチも合わせて見る。
-async function buildOgForLiffPath(db: D1Database, url: URL): Promise<string> {
-  const pathname = url.pathname;
-  const liffIdFromQuery = url.searchParams.get('liffId');
-  const pageFromQuery = url.searchParams.get('page');
-  const idFromQuery = url.searchParams.get('id');
-  const absoluteUrl = url.toString();
-
-  const lookupAccountByLiff = async (liffId: string | null): Promise<any> => {
-    if (!liffId) return null;
-    return db
-      .prepare(`SELECT * FROM line_accounts WHERE liff_id = ?`)
-      .bind(liffId)
-      .first<any>();
-  };
-  const lookupAccountById = async (id: string | null): Promise<any> => {
-    if (!id) return null;
-    return db.prepare(`SELECT * FROM line_accounts WHERE id = ?`).bind(id).first<any>();
-  };
-
-  // event: パス `/events/:id` または クエリ `?page=event&id=`
-  let eventId: string | null = null;
-  const eventPathMatch = pathname.match(/^\/events\/([^/]+)(?:\/(?:confirm|done))?\/?$/);
-  if (eventPathMatch) eventId = eventPathMatch[1];
-  else if (pageFromQuery === 'event' && idFromQuery) eventId = idFromQuery;
-
-  if (eventId) {
-    // liffId クエリでアカウントが特定できる場合は /api/liff/events/:id と
-    // 同じ可視性条件（deleted_at IS NULL, is_published=1, target アカウント所属）
-    // で event を取得する。未公開・削除済みのイベント情報を bot プレビューに
-    // 漏らさない。liffId が無いか不一致なら、最低限の公開条件のみ適用。
-    let event: any = null;
-    let account: any = null;
-
-    if (liffIdFromQuery) {
-      account = await lookupAccountByLiff(liffIdFromQuery);
-      if (account) {
-        event = await db
-          .prepare(
-            `SELECT * FROM events
-              WHERE id = ? AND deleted_at IS NULL AND is_published = 1 AND (
-                (target_type = 'single' AND line_account_id = ?)
-                OR (target_type = 'multi-account-dedup'
-                    AND EXISTS (SELECT 1 FROM json_each(account_ids) WHERE value = ?))
-              )`,
-          )
-          .bind(eventId, account.id, account.id)
-          .first<any>();
-      }
-    }
-
-    if (!event) {
-      // liffId 指定でアカウント特定したが strict query で event が引けなかった、
-      // または liffId 無しのフォールバック。account の branding を持ち越すと
-      // event とアカウントの組み合わせが不整合になるのでリセットする。
-      account = null;
-      event = await db
-        .prepare(
-          `SELECT * FROM events WHERE id = ? AND deleted_at IS NULL AND is_published = 1`,
-        )
-        .bind(eventId)
-        .first<any>();
-      if (event && event.target_type === 'single' && event.line_account_id) {
-        // multi-account-dedup のときは line_account_id が sentinel なので
-        // branding に使わない（og:site_name は 'LINE' フォールバック）。
-        account = await lookupAccountById(event.line_account_id);
-      }
-    }
-
-    if (event) {
-      const og = resolveOgForEvent(event, account, absoluteUrl);
-      return buildOgHtml(og);
-    }
-  }
-
-  // form: クエリ `?page=form&id=`
-  if (pageFromQuery === 'form' && idFromQuery) {
-    const form = await db
-      .prepare(`SELECT * FROM forms WHERE id = ?`)
-      .bind(idFromQuery)
-      .first<any>();
-    if (form) {
-      const account = await lookupAccountByLiff(liffIdFromQuery);
-      const og = resolveOgForForm(form, account, absoluteUrl);
-      return buildOgHtml(og);
-    }
-  }
-
-  // フォールバック: アカウントデフォルトのみ
-  const account = await lookupAccountByLiff(liffIdFromQuery);
-  const og = resolveOgForAccount(account, absoluteUrl);
-  return buildOgHtml(og);
-}
-
 // 404 fallback — API paths return JSON 404, everything else serves from static assets (LIFF/admin)
-export async function notFoundHandler(
-  c: import('hono').Context<Env>,
-): Promise<Response> {
-  const url = new URL(c.req.url);
-  const path = url.pathname;
+export const notFoundHandler = async (c: Parameters<typeof app.notFound>[0] extends (ctx: infer C) => unknown ? C : never) => {
+  const path = new URL(c.req.url).pathname;
   if (path.startsWith('/api/') || path === '/webhook' || path === '/docs' || path === '/openapi.json') {
     return c.json({ success: false, error: 'Not found' }, 404);
   }
-
-  // Bot UA (LINE/X/Facebook 等のリンクプレビュー) → OGP HTML を返す
-  const ua = c.req.header('user-agent') || '';
-  if (isLinkPreviewBot(ua)) {
-    const html = await buildOgForLiffPath(c.env.DB, url);
-    return c.html(html);
+  // Serve static assets (admin dashboard, LIFF pages)
+  if (c.env.ASSETS && typeof c.env.ASSETS.fetch === 'function') {
+    return c.env.ASSETS.fetch(c.req.raw);
   }
+  return c.json({ success: false, error: 'Not found' }, 404);
+};
 
-  // Serve static assets (admin dashboard, LIFF pages).
-  // ASSETS binding is missing when wrangler runs without a built `dist/client`
-  // (fresh clone, vitest, or a deploy where the assets directive was stripped).
-  // Without this guard every GET / surfaces as
-  // "TypeError: Cannot read properties of undefined (reading 'fetch')".
-  if (!c.env.ASSETS || typeof c.env.ASSETS.fetch !== 'function') {
-    return c.json({ success: false, error: 'Not found' }, 404);
-  }
-  return c.env.ASSETS.fetch(c.req.raw);
-}
 app.notFound(notFoundHandler);
 
 // Scheduled handler for cron triggers — runs for all active LINE accounts

@@ -22,9 +22,6 @@ interface Automation {
   actions: AutomationAction[]
   isActive: boolean
   priority: number
-  // null = global automation (fires for every account); UUID = bound to that
-  // account. Surfaced so the badge + toggle/delete guards can distinguish.
-  lineAccountId: string | null
   createdAt: string
   updatedAt: string
 }
@@ -200,15 +197,6 @@ export default function AutomationsPage() {
   }
 
   const handleToggleActive = async (id: string, current: boolean) => {
-    // Globals fire for every account; flipping one from an account-scoped view
-    // would silently affect all accounts, so warn first.
-    const target = automations.find((a) => a.id === id)
-    if (target?.lineAccountId === null) {
-      const ok = confirm(
-        `「${target.name}」は全アカウント共通のオートメーションです。${current ? '無効化' : '有効化'}するとすべてのアカウントに影響します。続行しますか?`,
-      )
-      if (!ok) return
-    }
     try {
       await api.automations.update(id, { isActive: !current })
       loadAutomations()
@@ -218,11 +206,7 @@ export default function AutomationsPage() {
   }
 
   const handleDelete = async (id: string) => {
-    const target = automations.find((a) => a.id === id)
-    const message = target?.lineAccountId === null
-      ? `「${target.name}」は全アカウント共通のオートメーションです。削除するとすべてのアカウントから消えます。本当に削除しますか?`
-      : 'このオートメーションを削除してもよいですか？'
-    if (!confirm(message)) return
+    if (!confirm('このオートメーションを削除してもよいですか？')) return
     try {
       await api.automations.delete(id)
       loadAutomations()
@@ -400,16 +384,6 @@ export default function AutomationsPage() {
                 }`}>
                   {automation.isActive ? '有効' : '無効'}
                 </span>
-                {/* lineAccountId === null = global; label it so the account-scoped
-                   list cannot disguise an all-accounts rule as account-local. */}
-                {automation.lineAccountId === null && (
-                  <span
-                    className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200"
-                    title="全アカウントに適用されるオートメーションです"
-                  >
-                    全アカウント共通
-                  </span>
-                )}
               </div>
 
               {/* Meta info */}

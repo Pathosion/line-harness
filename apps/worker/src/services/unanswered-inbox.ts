@@ -322,23 +322,13 @@ export async function computeUnansweredInbox(
 }
 
 /**
- * 未対応 friend の row map を返す。row には未対応判定後の preview (auto_reply
- * matched 等を除いた最新の actionable incoming) が含まれる。
- * /api/chats?unansweredOnly=true で preview を上書きするのに使う。
- */
-export async function getUnansweredRowsMap(db: D1Database): Promise<Map<string, UnansweredRow>> {
-  const rows = await getAllUnansweredRows(db);
-  return new Map(rows.map((r) => [r.friendId, r]));
-}
-
-/**
  * 未対応 (人間が返事してない) friend ID の Set を返す。
  * /api/chats?unansweredOnly=true で chat list を絞るのに使う。
  * 判定ロジックは getAllUnansweredRows と同じ source of truth。
  */
 export async function getUnansweredFriendIds(db: D1Database): Promise<Set<string>> {
-  const map = await getUnansweredRowsMap(db);
-  return new Set(map.keys());
+  const rows = await getAllUnansweredRows(db);
+  return new Set(rows.map((r) => r.friendId));
 }
 
 export async function countUnanswered(db: D1Database): Promise<UnansweredCount> {

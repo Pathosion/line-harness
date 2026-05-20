@@ -569,11 +569,7 @@ export default function ChatsPage() {
             lastMessageDirection: 'outgoing' as const,
             lastMessageType: 'image' as const,
           } : c)
-          // 未対応モード時は status filter を skip (worker 側で status を絞ってないため
-          // 楽観更新で applied するとリストが歪む — Codex Round 1)
-          let filtered = currentUnansweredOnly
-            ? updated
-            : (currentFilter === 'all' ? updated : updated.filter((c) => c.status === currentFilter))
+          let filtered = currentFilter === 'all' ? updated : updated.filter((c) => c.status === currentFilter)
           if (currentUnansweredOnly) {
             // 未対応モードでは、自分が返信したばかりの chat はもう未対応ではないのでリストから除外
             filtered = filtered.filter((c) => c.id !== sendingChatId)
@@ -625,11 +621,7 @@ export default function ChatsPage() {
             lastMessageType: 'text' as const,
           } : c)
           // Drop rows that no longer match the current tab (e.g. replying from 未読 moves chat to in_progress)
-          // 未対応モード時は status filter を skip (worker 側で status を絞ってないため
-          // 楽観更新で applied するとリストが歪む — Codex Round 1)
-          let filtered = currentUnansweredOnly
-            ? updated
-            : (currentFilter === 'all' ? updated : updated.filter((c) => c.status === currentFilter))
+          let filtered = currentFilter === 'all' ? updated : updated.filter((c) => c.status === currentFilter)
           if (currentUnansweredOnly) {
             // 未対応モードでは、自分が返信したばかりの chat はもう未対応ではないのでリストから除外
             filtered = filtered.filter((c) => c.id !== sendingChatId)
@@ -868,10 +860,8 @@ export default function ChatsPage() {
                       type="button"
                       onClick={() => {
                         const idx = chats.findIndex((c) => c.id === selectedChatId)
-                        // idx < 0 = current chat is no longer in the list (e.g. just sent a reply)
-                        // → fall back to the head of the list so the queue keeps moving
-                        const nextIdx = idx < 0 ? 0 : (idx + 1) % chats.length
-                        const next = chats[nextIdx]
+                        if (idx < 0) return
+                        const next = chats[(idx + 1) % chats.length]
                         if (next && next.id !== selectedChatId) {
                           setSelectedChatId(next.id)
                         }

@@ -5,7 +5,7 @@
 Workers のデプロイ設定ファイル。パス: `apps/worker/wrangler.toml`
 
 ```toml
-name = "your-worker-name"
+name = "line-crm-worker"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 workers_dev = true
@@ -16,7 +16,7 @@ workers_dev = true
 [[d1_databases]]
 binding = "DB"
 database_name = "line-crm"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "b2712617-31c4-47c2-accd-4eec906c44ce"
 
 [triggers]
 crons = ["*/5 * * * *"]
@@ -26,7 +26,7 @@ crons = ["*/5 * * * *"]
 
 | フィールド | 値 | 説明 |
 |-----------|-----|------|
-| `name` | `your-worker-name` | Workers の名前（デプロイ先URLに影響） |
+| `name` | `line-crm-worker` | Workers の名前（デプロイ先URLに影響） |
 | `main` | `src/index.ts` | エントリーポイント |
 | `compatibility_date` | `2024-12-01` | Workers ランタイム互換日 |
 | `workers_dev` | `true` | `*.workers.dev` サブドメインを有効化 |
@@ -89,7 +89,7 @@ Next.js 管理画面で必要な環境変数。Vercel / CF Pages のダッシュ
 
 | 変数名 | 説明 | 例 |
 |--------|------|-----|
-| `NEXT_PUBLIC_API_URL` | Workers API URL | `https://your-worker.your-subdomain.workers.dev` |
+| `NEXT_PUBLIC_API_URL` | Workers API URL | `https://line-crm-worker.line-crm-api.workers.dev` |
 
 > **セキュリティ注意**: APIキーはログイン画面で入力する方式です。`NEXT_PUBLIC_*` にAPIキーを絶対に設定しないでください。クライアントバンドルに埋め込まれ、第三者から抽出可能になります。
 
@@ -108,21 +108,21 @@ npx wrangler d1 create line-crm
 
 ```bash
 # 本番
-npx wrangler d1 execute your-database --file=packages/db/schema.sql
+npx wrangler d1 execute line-crm --file=packages/db/schema.sql
 
 # ローカル開発
 pnpm db:migrate:local
-# = wrangler d1 execute your-database --file=packages/db/schema.sql --local
+# = wrangler d1 execute line-crm --file=packages/db/schema.sql --local
 ```
 
 ### D1 ダッシュボード確認
 
 ```bash
 # テーブル一覧確認
-npx wrangler d1 execute your-database --command="SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+npx wrangler d1 execute line-crm --command="SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
 
 # レコード数確認
-npx wrangler d1 execute your-database --command="SELECT COUNT(*) FROM friends"
+npx wrangler d1 execute line-crm --command="SELECT COUNT(*) FROM friends"
 ```
 
 ### D1 バインディング
@@ -190,7 +190,7 @@ app.use('*', cors({ origin: '*' }));
 
 ```typescript
 app.use('*', cors({
-  origin: ['https://your-admin.pages.dev', 'https://your-domain.com'],
+  origin: ['https://line-crm-admin.pages.dev', 'https://your-domain.com'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Authorization', 'Content-Type'],
 }));
@@ -245,7 +245,7 @@ isTimeBefore(a: string, b: string): boolean
 配信予約はJST文字列で指定:
 
 ```bash
-curl -X POST https://your-worker.your-subdomain.workers.dev/api/broadcasts \
+curl -X POST https://line-crm-worker.line-crm-api.workers.dev/api/broadcasts \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

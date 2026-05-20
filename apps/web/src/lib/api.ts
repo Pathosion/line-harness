@@ -412,9 +412,6 @@ export const api = {
       loginChannelId?: string | null;
       loginChannelSecret?: string | null;
       liffId?: string | null;
-      ogSiteName?: string | null;
-      ogDefaultImageUrl?: string | null;
-      ogDefaultDescription?: string | null;
     }) =>
       fetchApi<ApiResponse<LineAccount>>('/api/line-accounts', {
         method: 'POST',
@@ -443,9 +440,6 @@ export const api = {
           | 'isActive'
           | 'country'
           | 'role'
-          | 'ogSiteName'
-          | 'ogDefaultDescription'
-          | 'ogDefaultImageUrl'
         >
       >,
     ) => {
@@ -1141,30 +1135,6 @@ export const api = {
     funnel: (id: string) =>
       fetchApi<ApiResponse<EntryRouteFunnel>>(`/api/entry-routes/${id}/funnel`),
   },
-  // tracked_links は別管理だが /inflow-links 一覧で「(未登録)」誤表示を防ぐため
-  // 同ページから参照する。Worker の applyRefAttribution は entry_routes → tracked_links
-  // の順でフォールバックするので、tracked_links 登録済み ref は実際にはシナリオ発火している。
-  trackedLinks: {
-    list: () =>
-      fetchApi<
-        ApiResponse<
-          Array<{
-            id: string
-            name: string
-            originalUrl: string
-            trackingUrl: string
-            tagId: string | null
-            scenarioId: string | null
-            introTemplateId: string | null
-            rewardTemplateId: string | null
-            isActive: boolean
-            clickCount: number
-            createdAt: string
-            updatedAt: string
-          }>
-        >
-      >('/api/tracked-links'),
-  },
   pools: {
     list: () => fetchApi<ApiResponse<TrafficPool[]>>('/api/traffic-pools'),
     get: (id: string) => fetchApi<ApiResponse<TrafficPool>>(`/api/traffic-pools/${id}`),
@@ -1262,7 +1232,6 @@ export interface BookingMenu {
   base_price: number;
   sort_order: number;
   is_active: number;
-  auto_tag_id: string | null;
 }
 
 export interface BookingStaff {
@@ -1294,7 +1263,6 @@ export interface StaffMenuMatrix {
 
 export interface BookingRequest {
   id: string;
-  friend_id: string;
   starts_at: string;
   ends_at: string;
   status: string;
@@ -1460,11 +1428,6 @@ export interface EventDetail {
   reminder_hours_before: number | null;
   is_published: number;
   sort_order: number;
-  confirmation_message_extra: string | null;
-  reminder_message_extra: string | null;
-  og_title: string | null;
-  og_description: string | null;
-  og_image_url: string | null;
   // Multi-account fields (migration 040, broadcasts と同パターン)
   target_type?: 'single' | 'multi-account-dedup';
   // Worker は JSON 文字列で返す。UI 側で parse して string[] を扱う。

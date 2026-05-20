@@ -1,0 +1,120 @@
+import type { UpdateContext } from '../types.js';
+import type { EventEmitter } from '../events.js';
+import type { ParsedBundle } from '../bundle.js';
+import { executeD1Query } from '../cf-api/d1.js';
+import { listWorkerBindings, putWorkerScript } from '../cf-api/workers.js';
+import { deployPagesProject } from '../cf-api/pages.js';
+
+/**
+ * Result of a successful apply phase.
+ *
+ * The two Pages deployment ids are kept so the orchestrator can pass them
+ * into the verify phase (for liveness probes) and the rollback phase (so
+ * we know which deployment to revert to if verify fails).
+ */
+export interface ApplyResult {
+  adminDeploymentId: string;
+  liffDeploymentId: string;
+}
+
+/**
+ * Phase 1 — Apply.
+ *
+ * Runs the four sub-steps of an update in strict order:
+ *
+ *   1. Migrations — apply each SQL file from the bundle to D1, one at a
+ *      time. Migrations are additive by convention (new tables/columns
+ *      only) so existing Workers keep functioning until the new Worker
+ *      is uploaded in step 2.
+ *   2. Worker — read existing bindings (CF does NOT preserve them across
+ *      script uploads) and re-PUT the new script with the same bindings
+ *      attached. By this point the schema already supports the new code.
+ *   3. Admin Pages — deploy the admin UI bundle. Goes after the Worker so
+ *      the admin UI's API calls hit the new Worker, not the old one.
+ *   4. LIFF Pages — deploy the customer-facing LIFF UI last for the same
+ *      reason.
+ *
+ * Every step emits `{ status: 'running' }` before the side effect and
+ * `{ status: 'done' }` afterward. On any failure the error is re-thrown
+ * untouched — the orchestrator is responsible for emitting a `failed`
+ * event and kicking off rollback. We intentionally do NOT catch + emit
+ * here so retry/rollback policy stays in one place upstream.
+ */
+export async function runApply(
+  ctx: UpdateContext,
+  bundle: ParsedBundle,
+  ev: EventEmitter,
+): Promise<ApplyResult> {
+  // Step 1: Migrations. Iterate the manifest's declared order (NOT the
+  // bundle's map iteration order) so customers can rely on numeric
+  // prefixes (e.g. 041_x.sql before 042_y.sql) controlling apply order
+  // even if the tarball was built non-deterministically.
+  for (const name of ctx.target.migrations) {
+    const sql = bundle.migrations.get(name);
+    if (!sql) {
+      throw new Error(`migration ${name} missing in bundle`);
+    }
+    await ev.emit({ step: 'migration', status: 'running', name });
+    await executeD1Query({
+      creds: ctx.creds,
+      databaseId: ctx.d1DatabaseId,
+      sql: sql.toString('utf-8'),
+    });
+    await ev.emit({ step: 'migration', status: 'done', name });
+  }
+
+  // Step 2: Worker. List-then-PUT preserves the customer's secret_text,
+  // plain_text, D1, R2 and KV bindings — CF wipes bindings on every
+  // script upload, so we have to re-supply them or the new Worker boots
+  // with no env at all.
+  await ev.emit({ step: 'worker', status: 'running' });
+  const bindings = await listWorkerBindings({
+    creds: ctx.creds,
+    scriptName: ctx.workerName,
+  });
+  await putWorkerScript({
+    creds: ctx.creds,
+    scriptName: ctx.workerName,
+    scriptContent: bundle.workerJs,
+    bindings,
+  });
+  await ev.emit({
+    step: 'worker',
+    status: 'done',
+    hash: ctx.target.worker_hash,
+  });
+
+  // Step 3: Admin Pages. Done before LIFF because admin is internal-only
+  // and any breakage here is contained — LIFF is what customers see.
+  await ev.emit({ step: 'admin', status: 'running' });
+  const adminResult = await deployPagesProject({
+    creds: ctx.creds,
+    projectName: ctx.adminPagesProject,
+    files: bundle.adminFiles,
+  });
+  await ev.emit({
+    step: 'admin',
+    status: 'done',
+    deployment_id: adminResult.deploymentId,
+  });
+
+  // Step 4: LIFF Pages. Last so the customer-facing UI swap only happens
+  // once everything beneath it (schema + Worker + admin) is already
+  // live on the new version.
+  await ev.emit({ step: 'liff', status: 'running' });
+  const liffResult = await deployPagesProject({
+    creds: ctx.creds,
+    projectName: ctx.liffPagesProject,
+    files: bundle.liffFiles,
+  });
+  await ev.emit({
+    step: 'liff',
+    status: 'done',
+    deployment_id: liffResult.deploymentId,
+  });
+
+  return {
+    adminDeploymentId: adminResult.deploymentId,
+    liffDeploymentId: liffResult.deploymentId,
+  };
+}

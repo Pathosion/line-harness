@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import Link from 'next/link'
 import Header from '@/components/layout/header'
 import { bookingApi, type BookingRequest } from '@/lib/api'
 import { useAccount } from '@/contexts/account-context'
@@ -55,39 +54,11 @@ function formatJpDateTime(iso: string): string {
 }
 
 export default function BookingsPage() {
-  const { selectedAccountId, selectedAccount } = useAccount()
+  const { selectedAccountId } = useAccount()
   const [tab, setTab] = useState<string>('requested')
   const [items, setItems] = useState<BookingRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // copied 状態は URL 単位で持つ。アカウント切替で shareUrl が変わると
-  // 自動で「コピー済」が消えるので、A の URL をコピーしたまま B 画面で
-  // 「B フォームと思い込んで送信」する事故を防ぐ。
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null)
-
-  const liffId = selectedAccount?.liffId ?? null
-  // Worker `/o` は ref 解決・追跡なしで liffId を直接受けるラップ URL。
-  // `liff.line.me` を直貼りすると OpenChat / IG DM 等で削除されるため、
-  // LINE 内配信も SNS 配信もこの 1 本で完結させる。/o は LINE 内 UA でも
-  // 「LINEで開く」ボタン経由で Universal Link → LIFF を起動する。
-  const workerBase = process.env.NEXT_PUBLIC_API_URL ?? ''
-  const shareUrl = workerBase && liffId
-    ? `${workerBase}/o?liffId=${encodeURIComponent(liffId)}&page=salon-book`
-    : null
-  const copied = copiedUrl !== null && copiedUrl === shareUrl
-
-  async function copyUrl(url: string | null) {
-    if (!url) return
-    try {
-      await navigator.clipboard.writeText(url)
-      setCopiedUrl(url)
-      setTimeout(() => {
-        setCopiedUrl((cur) => (cur === url ? null : cur))
-      }, 2000)
-    } catch {
-      window.prompt('コピーしてください:', url)
-    }
-  }
 
   const load = useCallback(async () => {
     if (!selectedAccountId) return
@@ -127,55 +98,6 @@ export default function BookingsPage() {
         title="予約管理"
         description="顧客からの予約リクエストを承認・拒否します"
       />
-
-      {selectedAccountId && (
-        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-blue-900 mb-2">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M13.828 10.172a4 4 0 015.656 0l1.414 1.414a4 4 0 010 5.656l-3 3a4 4 0 01-5.656 0L10 18.343M10.172 13.828a4 4 0 01-5.656 0L3.1 12.414a4 4 0 010-5.656l3-3a4 4 0 015.656 0L14 5.657"
-              />
-            </svg>
-            お客様向け 予約フォーム LIFF URL
-          </div>
-          {shareUrl ? (
-            <>
-              <div className="flex gap-2 items-center">
-                <input
-                  readOnly
-                  value={shareUrl}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="flex-1 border border-blue-200 rounded-lg px-3 py-2 text-xs bg-white font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => copyUrl(shareUrl)}
-                  className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                >
-                  {copied ? 'コピー済' : 'コピー'}
-                </button>
-              </div>
-              <p className="text-xs text-blue-700 mt-2">
-                LINE / OpenChat / IG DM どこでも貼れます。受信者がタップすると LINE で予約画面が開きます。
-              </p>
-            </>
-          ) : (
-            <p className="text-xs text-amber-700">
-              このアカウントには LIFF ID が未設定です。
-              <a href="/accounts" className="underline ml-1">アカウント設定</a> で LIFF ID を登録してください。
-            </p>
-          )}
-        </div>
-      )}
 
       {error && (
         <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
@@ -230,14 +152,7 @@ export default function BookingsPage() {
                 {items.map((b) => (
                   <tr key={b.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm whitespace-nowrap">{formatJpDateTime(b.starts_at)}</td>
-                    <td className="px-4 py-3 text-sm">
-                      <Link
-                        href={`/chats?friend=${b.friend_id}`}
-                        className="text-blue-600 hover:underline"
-                      >
-                        {b.friend_name ?? '-'}
-                      </Link>
-                    </td>
+                    <td className="px-4 py-3 text-sm">{b.friend_name ?? '-'}</td>
                     <td className="px-4 py-3 text-sm">{b.menu_name}</td>
                     <td className="px-4 py-3 text-sm">{b.staff_name}</td>
                     <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate" title={b.customer_note ?? ''}>

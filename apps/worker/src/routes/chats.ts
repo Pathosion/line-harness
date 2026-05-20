@@ -188,12 +188,12 @@ chats.get('/api/chats', async (c) => {
     const unansweredOnly =
       c.req.query('unansweredOnly') === 'true' || c.req.query('unansweredOnly') === '1';
 
-    let unansweredMap: Map<string, { lastIncomingAt: string; lastIncomingContent: string; lastIncomingType: string }> | null = null;
+    let unansweredIds: Set<string> | null = null;
     if (unansweredOnly) {
-      const { getUnansweredRowsMap } = await import('../services/unanswered-inbox.js');
-      unansweredMap = await getUnansweredRowsMap(c.env.DB);
-      // 空 Map のとき = 未対応ゼロ。早期 return で空配列を返す。
-      if (unansweredMap.size === 0) {
+      const { getUnansweredFriendIds } = await import('../services/unanswered-inbox.js');
+      unansweredIds = await getUnansweredFriendIds(c.env.DB);
+      // 空 Set のとき = 未対応ゼロ。早期 return で空配列を返す。
+      if (unansweredIds.size === 0) {
         return c.json({ success: true, data: [] });
       }
     }
@@ -349,26 +349,8 @@ chats.get('/api/chats', async (c) => {
       updatedAt: ch.updated_at,
     }));
 
-    if (unansweredMap) {
-      // 未対応 row の preview / timestamp で上書きして Inbox と一貫させる
-      data = data
-        .filter((row) => unansweredMap!.has(row.id as string))
-        .map((row) => {
-          const u = unansweredMap!.get(row.id as string)!;
-          return {
-            ...row,
-            lastMessageAt: u.lastIncomingAt,
-            lastMessageContent: u.lastIncomingType === 'text' ? u.lastIncomingContent : null,
-            lastMessageDirection: 'incoming' as const,
-            lastMessageType: u.lastIncomingType,
-          };
-        })
-        // 上書きで lastMessageAt が変わったので resort
-        .sort((a, b) => {
-          const aAt = typeof a.lastMessageAt === 'string' ? a.lastMessageAt : '';
-          const bAt = typeof b.lastMessageAt === 'string' ? b.lastMessageAt : '';
-          return bAt.localeCompare(aAt);
-        });
+    if (unansweredIds) {
+      data = data.filter((row) => unansweredIds!.has(row.id));
     }
 
     return c.json({ success: true, data });

@@ -17,9 +17,6 @@ export interface LineAccount {
   role: string | null;
   display_order: number;
   token_expires_at: string | null;
-  og_site_name: string | null;
-  og_default_image_url: string | null;
-  og_default_description: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -32,9 +29,6 @@ export interface CreateLineAccountInput {
   loginChannelId?: string | null;
   loginChannelSecret?: string | null;
   liffId?: string | null;
-  ogSiteName?: string | null;
-  ogDefaultImageUrl?: string | null;
-  ogDefaultDescription?: string | null;
 }
 
 export async function createLineAccount(
@@ -56,10 +50,8 @@ export async function createLineAccount(
       `INSERT INTO line_accounts
          (id, channel_id, name, channel_access_token, channel_secret,
           login_channel_id, login_channel_secret, liff_id,
-          is_active, display_order,
-          og_site_name, og_default_image_url, og_default_description,
-          created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+          is_active, display_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -71,9 +63,6 @@ export async function createLineAccount(
       input.loginChannelSecret ?? null,
       input.liffId ?? null,
       displayOrder,
-      input.ogSiteName ?? null,
-      input.ogDefaultImageUrl ?? null,
-      input.ogDefaultDescription ?? null,
       now,
       now,
     )
@@ -120,9 +109,6 @@ export type UpdateLineAccountInput = Partial<
     | 'liff_id'
     | 'is_active'
     | 'token_expires_at'
-    | 'og_site_name'
-    | 'og_default_image_url'
-    | 'og_default_description'
   >
 >;
 
@@ -166,18 +152,6 @@ export async function updateLineAccount(
     fields.push('token_expires_at = ?');
     values.push(updates.token_expires_at);
   }
-  if (updates.og_site_name !== undefined) {
-    fields.push('og_site_name = ?');
-    values.push(updates.og_site_name);
-  }
-  if (updates.og_default_image_url !== undefined) {
-    fields.push('og_default_image_url = ?');
-    values.push(updates.og_default_image_url);
-  }
-  if (updates.og_default_description !== undefined) {
-    fields.push('og_default_description = ?');
-    values.push(updates.og_default_description);
-  }
 
   if (fields.length === 0) return getLineAccountById(db, id);
 
@@ -207,9 +181,6 @@ export interface UpdateLineAccountFieldsInput {
   loginChannelId?: string | null;
   loginChannelSecret?: string | null;
   liffId?: string | null;
-  ogSiteName?: string | null;
-  ogDefaultImageUrl?: string | null;
-  ogDefaultDescription?: string | null;
 }
 
 export async function updateLineAccountFields(
@@ -243,18 +214,6 @@ export async function updateLineAccountFields(
   if (input.liffId !== undefined) {
     sets.push('liff_id = ?');
     binds.push(input.liffId);
-  }
-  if (input.ogSiteName !== undefined) {
-    sets.push('og_site_name = ?');
-    binds.push(input.ogSiteName);
-  }
-  if (input.ogDefaultImageUrl !== undefined) {
-    sets.push('og_default_image_url = ?');
-    binds.push(input.ogDefaultImageUrl);
-  }
-  if (input.ogDefaultDescription !== undefined) {
-    sets.push('og_default_description = ?');
-    binds.push(input.ogDefaultDescription);
   }
 
   if (sets.length === 0) {

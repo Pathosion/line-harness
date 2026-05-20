@@ -1,27 +1,28 @@
 name = "line-harness"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+# nodejs_compat is required by @line-harness/update-engine which pulls in
+# `node:stream` (Readable.fromWeb), `node:zlib` (createGunzip), `node:crypto`
+# (createHash), and the `tar-stream` package for bundle parsing during the
+# /admin/update/* self-update flow. Without this flag the route imports
+# fail at runtime. compatibility_date 2024-09-23+ is required for the flag.
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 
 # ═══════════════════════════════════════════════════════════════
-# デフォルト = テスト環境
+# デフォルト = テスト環境 (noda@)
 # 使い方: npx wrangler deploy
 # ═══════════════════════════════════════════════════════════════
-account_id = "YOUR_DEV_ACCOUNT_ID"
+account_id = "c40947ff58a767be74a53be79a89d68a"
 
 [assets]
 directory = "dist/client"
 binding = "ASSETS"
-# Worker を先に走らせて bot UA → OGP HTML 差し込みを可能にする。
-# 通常 UA のときは Worker の notFound 内で c.env.ASSETS.fetch(req) を呼んで
-# SPA を返す。これが無いと static asset path が Worker をバイパスして
-# 直接配信され、bot 判定が効かない。
-run_worker_first = true
 
 [[d1_databases]]
 binding = "DB"
 database_name = "line-harness"
-database_id = "YOUR_DEV_D1_DATABASE_ID"
+database_id = "7efe7c20-01ae-4d65-be08-0d7b4202e8a1"
 
 [[r2_buckets]]
 binding = "IMAGES"
@@ -31,22 +32,37 @@ bucket_name = "line-harness-images"
 crons = ["*/5 * * * *", "0 */6 * * *"]
 
 # ═══════════════════════════════════════════════════════════════
-# 本番環境
-# 使い方: npx wrangler deploy --env production --name your-worker-name
-# D1:     npx wrangler d1 execute your-database --env production --remote --file ...
+# Phase 5 self-update vars — consumed by /admin/update/*. Secrets
+# (CF_API_TOKEN, ADMIN_API_KEY) must be set via `wrangler secret put`
+# and are intentionally absent from this file.
+# ═══════════════════════════════════════════════════════════════
+[vars]
+WORKER_NAME = "line-harness"
+ADMIN_PAGES_PROJECT = "line-harness-admin"
+LIFF_PAGES_PROJECT = "line-harness-liff"
+D1_DATABASE_ID = "7efe7c20-01ae-4d65-be08-0d7b4202e8a1"
+MANIFEST_URL = "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json"
+WORKER_PUBLIC_URL = "https://line-harness.workers.dev"
+ADMIN_PUBLIC_URL = "https://line-harness-admin.pages.dev"
+LIFF_PUBLIC_URL = "https://line-harness-liff.pages.dev"
+CF_ACCOUNT_ID = "c40947ff58a767be74a53be79a89d68a"
+
+# ═══════════════════════════════════════════════════════════════
+# 本番環境 (aiagent.mini@)
+# 使い方: npx wrangler deploy --env production --name line-crm-worker
+# D1:     npx wrangler d1 execute line-crm --env production --remote --file ...
 # ═══════════════════════════════════════════════════════════════
 [env.production]
-account_id = "YOUR_ACCOUNT_ID"
+account_id = "37f8f88be4c099329e4647bda211bb9f"
 
 [env.production.assets]
 directory = "dist/client"
 binding = "ASSETS"
-run_worker_first = true
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "line-crm"
-database_id = "YOUR_D1_DATABASE_ID"
+database_id = "b2712617-31c4-47c2-accd-4eec906c44ce"
 
 [[env.production.r2_buckets]]
 binding = "IMAGES"
@@ -54,3 +70,17 @@ bucket_name = "line-harness-images"
 
 [env.production.triggers]
 crons = ["*/5 * * * *", "0 */6 * * *"]
+
+# Phase 5 self-update vars for production. Worker / Pages / D1 names point at
+# the prod resources. Secrets (CF_API_TOKEN, ADMIN_API_KEY) live in the
+# production secret store, set via `wrangler secret put --env production`.
+[env.production.vars]
+WORKER_NAME = "line-crm-worker"
+ADMIN_PAGES_PROJECT = "line-harness-admin"
+LIFF_PAGES_PROJECT = "line-harness-liff"
+D1_DATABASE_ID = "b2712617-31c4-47c2-accd-4eec906c44ce"
+MANIFEST_URL = "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json"
+WORKER_PUBLIC_URL = "https://line-crm-worker.workers.dev"
+ADMIN_PUBLIC_URL = "https://line-harness-admin.pages.dev"
+LIFF_PUBLIC_URL = "https://line-harness-liff.pages.dev"
+CF_ACCOUNT_ID = "37f8f88be4c099329e4647bda211bb9f"

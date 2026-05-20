@@ -12,9 +12,6 @@ import {
 import { addTagToFriend, enrollFriendInScenario } from '@line-crm/db';
 import type { TrackedLink } from '@line-crm/db';
 import type { Env } from '../index.js';
-import { isLinkPreviewBot } from '../lib/og-bot.js';
-import { buildOgHtml } from '../lib/og-html.js';
-import { resolveOgForTrackedLink } from '../lib/og-resolver.js';
 
 const trackedLinks = new Hono<Env>();
 
@@ -31,9 +28,6 @@ function serializeTrackedLink(row: TrackedLink, baseUrl: string) {
     rewardTemplateId: row.reward_template_id,
     isActive: Boolean(row.is_active),
     clickCount: row.click_count,
-    ogTitle: row.og_title,
-    ogDescription: row.og_description,
-    ogImageUrl: row.og_image_url,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -94,9 +88,6 @@ trackedLinks.post('/api/tracked-links', async (c) => {
       scenarioId?: string | null;
       introTemplateId?: string | null;
       rewardTemplateId?: string | null;
-      ogTitle?: string | null;
-      ogDescription?: string | null;
-      ogImageUrl?: string | null;
     }>();
 
     if (!body.name || !body.originalUrl) {
@@ -110,9 +101,6 @@ trackedLinks.post('/api/tracked-links', async (c) => {
       scenarioId: body.scenarioId ?? null,
       introTemplateId: body.introTemplateId ?? null,
       rewardTemplateId: body.rewardTemplateId ?? null,
-      ogTitle: body.ogTitle ?? null,
-      ogDescription: body.ogDescription ?? null,
-      ogImageUrl: body.ogImageUrl ?? null,
     });
 
     const base = getBaseUrl(c);
@@ -134,9 +122,6 @@ trackedLinks.patch('/api/tracked-links/:id', async (c) => {
       introTemplateId?: string | null;
       rewardTemplateId?: string | null;
       isActive?: boolean;
-      ogTitle?: string | null;
-      ogDescription?: string | null;
-      ogImageUrl?: string | null;
     }>();
 
     const link = await updateTrackedLink(c.env.DB, id, body);
@@ -253,35 +238,11 @@ trackedLinks.get('/t/:linkId', async (c) => {
     return c.json({ success: false, error: 'Link not found' }, 404);
   }
 
-  // Bot UA (LINE/X/Facebook 等のリンクプレビュー) → OGP HTML を返して終了。
-  // クリック記録もスキップ（bot のアクセスは CV ではない）。
-  const ua = c.req.header('user-agent') || '';
-  if (isLinkPreviewBot(ua)) {
-    const canonical = `${c.env.WORKER_URL || new URL(c.req.url).origin}/t/${linkId}`;
-    // tracked_links には line_account_id カラムが無いので、紐付く scenario 経由で
-    // アカウントを解決する（scenarios.line_account_id を引く）。シナリオ無しの
-    // リンクは account=null（og:site_name='LINE' フォールバック）。
-    let account: any = null;
-    if (link.scenario_id) {
-      const scRow = await c.env.DB
-        .prepare(`SELECT line_account_id FROM scenarios WHERE id = ?`)
-        .bind(link.scenario_id)
-        .first<{ line_account_id: string | null }>();
-      if (scRow?.line_account_id) {
-        account = await c.env.DB
-          .prepare(`SELECT * FROM line_accounts WHERE id = ?`)
-          .bind(scRow.line_account_id)
-          .first<any>();
-      }
-    }
-    const og = resolveOgForTrackedLink(link, account, canonical);
-    return c.html(buildOgHtml(og));
-  }
-
   const useAppRedirect = isAppLinkDomain(link.original_url);
 
   // If no user ID yet, check if this is LINE's in-app browser → redirect to LIFF for identification
   // Skip LIFF redirect for app-link domains (they'll come from Safari via externalBrowser)
+  const ua = c.req.header('user-agent') || '';
   const isLineApp = /\bLine\b/i.test(ua);
   if (!useAppRedirect && !lineUserId && !friendId && isLineApp && c.env.LIFF_URL) {
     const directUrl = `${c.env.WORKER_URL || new URL(c.req.url).origin}/t/${linkId}`;

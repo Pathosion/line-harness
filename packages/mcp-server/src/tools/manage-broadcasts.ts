@@ -26,8 +26,7 @@ export function registerManageBroadcasts(server: McpServer): void {
 
         if (action === "list") {
           const broadcasts = await client.broadcasts.list(accountId ? { accountId } : undefined);
-          const rows = broadcasts as unknown as Array<Record<string, unknown>>;
-          const enriched = rows.map((b) => ({
+          const enriched = (broadcasts as Array<Record<string, unknown>>).map((b) => ({
             ...b,
             insightStatus: b.insight_status || null,
             openRate: b.open_rate != null
@@ -56,7 +55,7 @@ export function registerManageBroadcasts(server: McpServer): void {
 
         if (action === "get") {
           const broadcast = await client.broadcasts.get(broadcastId);
-          const row = broadcast as unknown as Record<string, unknown>;
+          const row = broadcast as Record<string, unknown>;
           const insight = row.insight_status
             ? {
                 status: row.insight_status,

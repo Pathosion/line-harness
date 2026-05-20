@@ -3,7 +3,7 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": ".",
-    "types": ["@cloudflare/workers-types", "node"]
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/**/*.ts", "mcp-server/**/*.ts"]
 }
