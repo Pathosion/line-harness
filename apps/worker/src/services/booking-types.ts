@@ -100,7 +100,7 @@ export interface AccountSettings {
 
 export const DEFAULT_ACCOUNT_SETTINGS: AccountSettings = {
   reminder_hours_before: 2,
-  min_lead_time_minutes: 60,
+  min_lead_time_minutes: 4320,
 };
 
 export const SLOT_GRANULARITY_MINUTES = 30;
