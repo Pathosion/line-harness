@@ -65,7 +65,7 @@ export function buildBundle(args: BuildBundleArgs): void {
     // Build the tarball. -C makes paths inside the tar relative to staging.
     execSync(
       `tar czf ${shellQuote(absOut)} -C ${shellQuote(staging)} worker admin liff migrations`,
-      { stdio: 'inherit' },
+      { stdio: 'inherit', env: { ...process.env, COPYFILE_DISABLE: '1' } },
     );
 
     // Log final size (stat -> MB, two decimal places).

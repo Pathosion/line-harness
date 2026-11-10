@@ -1,3 +1,7 @@
+import { workerGuardResponse } from '../worker-guard-fixture.js';
+import { createHash } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
+import { pack } from 'tar-stream';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { runRollback } from '../../src/phases/rollback.js';
 import type { RollbackSnapshot } from '../../src/phases/rollback.js';
@@ -28,7 +32,7 @@ const creds: CfApiCreds = {
 const sampleRelease = (overrides: Partial<ReleaseEntry> = {}): ReleaseEntry => ({
   version: '0.8.0',
   released_at: '',
-  worker_hash: '',
+  worker_hash: `sha256:${createHash('sha256').update('OLD_WORKER_CONTENT').digest('hex')}`,
   admin_hash: '',
   liff_hash: '',
   bundle_url: '',
@@ -43,7 +47,7 @@ const sampleRelease = (overrides: Partial<ReleaseEntry> = {}): ReleaseEntry => (
 
 const sampleCurrent = (): CurrentVersion => ({
   version: '0.7.0',
-  worker_hash: '',
+  worker_hash: `sha256:${createHash('sha256').update('OLD_WORKER_CONTENT').digest('hex')}`,
   admin_hash: '',
   liff_hash: '',
 });
@@ -100,7 +104,7 @@ function notOk(status = 500, body: unknown = { error: 'fail' }): Response {
   } as unknown as Response;
 }
 
-function okBundle(content: string = 'old worker bundle bytes'): Response {
+function okBundle(content: string = 'OLD_WORKER_CONTENT'): Response {
   const ab = new TextEncoder().encode(content).buffer;
   return {
     ok: true,
@@ -130,14 +134,19 @@ describe('runRollback', () => {
     ];
 
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      const method = (init?.method ?? 'GET').toUpperCase();
+      const identity = workerGuardResponse(url); if (identity) return identity;
+    const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith(`/workers/scripts/${WORKER_NAME}/settings`)) return ok({ result: {
+        compatibility_date: '2024-12-01', compatibility_flags: ['nodejs_compat'],
+        bindings: [{ name: 'DB', type: 'd1' }, { name: 'LINE_TOKEN', type: 'secret_text' }],
+      } });
       if (url === SNAPSHOT_WORKER_URL) {
         return okBundle('OLD_WORKER_CONTENT');
       }
       if (url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`)) {
         return ok({ result: existingBindings });
       }
-      if (url.endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
+      if (url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
         return ok({ success: true });
       }
       if (url.includes(`/pages/projects/${ADMIN_PROJECT}/deployments/${ADMIN_DEPLOY_ID}/rollback`)) {
@@ -162,14 +171,14 @@ describe('runRollback', () => {
     const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
     const putCall = calls.find(
       ([url, init]) =>
-        url.endsWith(`/workers/scripts/${WORKER_NAME}`) &&
+        url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) &&
         (init?.method ?? 'GET').toUpperCase() === 'PUT',
     );
     expect(putCall).toBeDefined();
     const fd = putCall![1]!.body as FormData;
     const metadataBlob = fd.get('metadata') as Blob;
     const metadata = JSON.parse(await metadataBlob.text());
-    expect(metadata.bindings).toEqual(existingBindings);
+    expect(metadata.bindings).toEqual(existingBindings.map(binding => ({ name: binding.name, type: 'inherit' })));
 
     // Both Pages rollbacks were invoked.
     const adminRb = calls.find(([url]) =>
@@ -207,12 +216,17 @@ describe('runRollback', () => {
 
   it('throws when Worker PUT fails during rollback', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      const method = (init?.method ?? 'GET').toUpperCase();
+      const identity = workerGuardResponse(url); if (identity) return identity;
+    const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith(`/workers/scripts/${WORKER_NAME}/settings`)) return ok({ result: {
+        compatibility_date: '2024-12-01', compatibility_flags: ['nodejs_compat'],
+        bindings: [{ name: 'DB', type: 'd1' }, { name: 'LINE_TOKEN', type: 'secret_text' }],
+      } });
       if (url === SNAPSHOT_WORKER_URL) return okBundle();
       if (url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`)) {
         return ok({ result: [] });
       }
-      if (url.endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
+      if (url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
         return notOk(500, { errors: [{ message: 'boom' }] });
       }
       throw new Error(`unrouted: ${method} ${url}`);
@@ -232,12 +246,17 @@ describe('runRollback', () => {
 
   it('throws when admin Pages rollback fails — LIFF rollback NOT attempted', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      const method = (init?.method ?? 'GET').toUpperCase();
+      const identity = workerGuardResponse(url); if (identity) return identity;
+    const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith(`/workers/scripts/${WORKER_NAME}/settings`)) return ok({ result: {
+        compatibility_date: '2024-12-01', compatibility_flags: ['nodejs_compat'],
+        bindings: [{ name: 'DB', type: 'd1' }, { name: 'LINE_TOKEN', type: 'secret_text' }],
+      } });
       if (url === SNAPSHOT_WORKER_URL) return okBundle();
       if (url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`)) {
         return ok({ result: [] });
       }
-      if (url.endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
+      if (url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
         return ok({ success: true });
       }
       if (url.includes(`/pages/projects/${ADMIN_PROJECT}/deployments/${ADMIN_DEPLOY_ID}/rollback`)) {
@@ -263,12 +282,17 @@ describe('runRollback', () => {
 
   it('does NOT roll back D1 migrations (no D1 query call happens)', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      const method = (init?.method ?? 'GET').toUpperCase();
+      const identity = workerGuardResponse(url); if (identity) return identity;
+    const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith(`/workers/scripts/${WORKER_NAME}/settings`)) return ok({ result: {
+        compatibility_date: '2024-12-01', compatibility_flags: ['nodejs_compat'],
+        bindings: [{ name: 'DB', type: 'd1' }, { name: 'LINE_TOKEN', type: 'secret_text' }],
+      } });
       if (url === SNAPSHOT_WORKER_URL) return okBundle();
       if (url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`)) {
         return ok({ result: [] });
       }
-      if (url.endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
+      if (url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
         return ok({ success: true });
       }
       if (url.includes('/rollback')) return ok({ success: true });
@@ -287,12 +311,17 @@ describe('runRollback', () => {
 
   it('order: fetches bundle → lists bindings → puts worker → admin rollback → liff rollback', async () => {
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-      const method = (init?.method ?? 'GET').toUpperCase();
+      const identity = workerGuardResponse(url); if (identity) return identity;
+    const method = (init?.method ?? 'GET').toUpperCase();
+      if (url.endsWith(`/workers/scripts/${WORKER_NAME}/settings`)) return ok({ result: {
+        compatibility_date: '2024-12-01', compatibility_flags: ['nodejs_compat'],
+        bindings: [{ name: 'DB', type: 'd1' }, { name: 'LINE_TOKEN', type: 'secret_text' }],
+      } });
       if (url === SNAPSHOT_WORKER_URL) return okBundle();
       if (url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`)) {
         return ok({ result: [] });
       }
-      if (url.endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
+      if (url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
         return ok({ success: true });
       }
       if (url.includes('/rollback')) return ok({ success: true });
@@ -313,7 +342,7 @@ describe('runRollback', () => {
     );
     const putIdx = findIdx(
       (u, init) =>
-        u.endsWith(`/workers/scripts/${WORKER_NAME}`) &&
+        u.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) &&
         (init?.method ?? 'GET').toUpperCase() === 'PUT',
     );
     const adminIdx = findIdx((u) =>
@@ -329,4 +358,60 @@ describe('runRollback', () => {
     expect(adminIdx).toBeGreaterThan(putIdx);
     expect(liffIdx).toBeGreaterThan(adminIdx);
   });
+});
+
+async function previousReleaseArchive(worker: string | null): Promise<Buffer> {
+  const archive = pack();
+  if (worker !== null) archive.entry({ name: 'worker/index.js' }, worker);
+  archive.finalize();
+  const chunks: Buffer[] = [];
+  for await (const chunk of archive) chunks.push(Buffer.from(chunk));
+  return gzipSync(Buffer.concat(chunks));
+}
+
+it('extracts and verifies worker/index.js from a real previous release archive before uploading', async () => {
+  const archive = await previousReleaseArchive('OLD_WORKER_CONTENT');
+  const emptyHash = `sha256:${createHash('sha256').digest('hex')}`;
+  const ctx = sampleCtx(); ctx.current.admin_hash = emptyHash; ctx.current.liff_hash = emptyHash;
+  const originalFetch = globalThis.fetch;
+  let uploaded: Buffer | undefined;
+  globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    const identity = workerGuardResponse(url); if (identity) return identity;
+    if (url === SNAPSHOT_WORKER_URL) return new Response(archive);
+    if (url.endsWith('/bindings')) return Response.json({ result: [{ name: 'TOKEN', type: 'secret_text' }] });
+    if (url.endsWith('/settings')) return Response.json({ result: {
+      compatibility_date: '2024-12-01', compatibility_flags: ['nodejs_compat'],
+      bindings: [{ name: 'TOKEN', type: 'secret_text' }],
+    } });
+    if (init?.method === 'PUT') {
+      uploaded = Buffer.from(await ((init.body as FormData).get('worker.js') as Blob).arrayBuffer());
+      return Response.json({ success: true });
+    }
+    if (url.endsWith('/rollback')) return Response.json({ success: true });
+    throw new Error('Unexpected request: ' + url);
+  }) as typeof fetch;
+  try {
+    await runRollback(ctx, sampleSnap(), collectEvents().emitter);
+    expect(uploaded?.toString()).toBe('OLD_WORKER_CONTENT');
+    expect(uploaded?.equals(archive)).toBe(false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+it.each(['tampered', 'missing'] as const)('refuses a %s entry point before any Worker or Pages mutation', async kind => {
+  const archive = await previousReleaseArchive(kind === 'missing' ? null : 'TAMPERED');
+  const originalFetch = globalThis.fetch;
+  const mock = vi.fn(async () => new Response(archive)); globalThis.fetch = mock as typeof fetch;
+  try {
+    await expect(runRollback(sampleCtx(), sampleSnap(), collectEvents().emitter)).rejects.toThrow(/hash mismatch/);
+    expect(mock).toHaveBeenCalledTimes(1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+it('refuses an unverified raw snapshot before any mutation', async () => {
+  const originalFetch = globalThis.fetch;
+  const mock = vi.fn(async () => new Response('UNTRUSTED')); globalThis.fetch = mock as typeof fetch;
+  try {
+    await expect(runRollback(sampleCtx(), sampleSnap(), collectEvents().emitter)).rejects.toThrow(/hash mismatch/);
+    expect(mock).toHaveBeenCalledTimes(1);
+  } finally { globalThis.fetch = originalFetch; }
 });

@@ -127,3 +127,11 @@ describe('detectFork', () => {
     }
   });
 });
+
+
+it('compares self-reported identity separately from the exact artifact checksum', () => {
+  const reported = { version: '1.0.0', worker_hash: 'sha256:' + 'a'.repeat(64), admin_hash: 'admin', liff_hash: 'liff' };
+  const release = { ...reported, worker_hash: 'sha256:' + 'b'.repeat(64), worker_identity_hash: reported.worker_hash, released_at: '', bundle_url: '', bundle_size_bytes: 1, required_secrets: [], new_required_secrets: [], migrations: [], changelog_url: '', min_from_version: '0.0.0' };
+  expect(detectFork(reported, { schema_version: 1, latest: '1.0.0', releases: [release] }).kind).toBe('vanilla');
+  expect(detectFork({ ...reported, worker_hash: release.worker_hash }, { schema_version: 1, latest: '1.0.0', releases: [release] }).kind).toBe('fork');
+});

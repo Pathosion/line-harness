@@ -131,6 +131,10 @@ describe('POST /admin/update/start', () => {
     const body = (await res.json()) as { updateId: string };
     expect(body.updateId).toBe('UPDATE_ID_123');
     expect(runUpdate).toHaveBeenCalledTimes(1);
+    expect(runUpdate.mock.calls[0][0]).toMatchObject({
+      currentWorkerBundleUrl: baseRelease.bundle_url,
+      currentRelease: { ...baseRelease, version: '0.0.0-dev' },
+    });
   });
 
   it('returns 200 with already_latest when target.version === current.version', async () => {

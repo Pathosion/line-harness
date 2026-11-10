@@ -9,8 +9,8 @@ name: Release
 #   2. Run unit tests (scripts/* + per-package).
 #   3. Migration safety check (additive-only policy).
 #   4. Build Worker, Admin, LIFF.
-#   5. Compute SHA256 hashes via inject-version, then rebuild Worker with
-#      _version.ts embedded so /_version reflects the shipping bundle.
+#   5. Compute the embedded build identity via inject-version, then rebuild Worker with
+#      _version.ts embedded. Hash the FINAL bytes separately; never embed that checksum.
 #   6. Produce `bundle.tar.gz` via scripts/release/build-bundle.ts.
 #   7. Generate `release-entry.json` (version, hashes, sizes, migrations,
 #      required_secrets, min_from_version).
@@ -112,13 +112,14 @@ jobs:
           echo "$json" >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-          # Extract individual hashes for the manifest entry.
+          # First-pass Worker hash is a self-reported build identity. The final
+          # Worker bytes get their separate checksum after the rebuild below.
           worker_hash=$(node -e "console.log(JSON.parse(process.argv[1]).workerHash)" "$json")
           admin_hash=$(node -e "console.log(JSON.parse(process.argv[1]).adminHash)" "$json")
           liff_hash=$(node -e "console.log(JSON.parse(process.argv[1]).liffHash)" "$json")
           released_at=$(node -e "console.log(JSON.parse(process.argv[1]).releasedAt)" "$json")
 
-          echo "worker_hash=${worker_hash}" >> "$GITHUB_OUTPUT"
+          echo "worker_identity_hash=${worker_hash}" >> "$GITHUB_OUTPUT"
           echo "admin_hash=${admin_hash}" >> "$GITHUB_OUTPUT"
           echo "liff_hash=${liff_hash}" >> "$GITHUB_OUTPUT"
           echo "released_at=${released_at}" >> "$GITHUB_OUTPUT"
@@ -136,11 +137,15 @@ jobs:
             --migrations packages/db/migrations \
             --out dist/bundle.tar.gz
 
-      - name: Compute bundle size
+      - name: Compute final artifact checksums and size
         id: bundle
         run: |
           size=$(stat -c%s dist/bundle.tar.gz)
           echo "size=${size}" >> "$GITHUB_OUTPUT"
+          worker_hash=$(node -e 'const fs=require("node:fs"),c=require("node:crypto");console.log("sha256:"+c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' apps/worker/dist/line_harness/index.js)
+          bundle_hash=$(node -e 'const fs=require("node:fs"),c=require("node:crypto");console.log("sha256:"+c.createHash("sha256").update(fs.readFileSync(process.argv[1])).digest("hex"))' dist/bundle.tar.gz)
+          echo "worker_hash=${worker_hash}" >> "$GITHUB_OUTPUT"
+          echo "bundle_hash=${bundle_hash}" >> "$GITHUB_OUTPUT"
 
       - name: Determine new migrations for this release
         id: migrations
@@ -169,7 +174,9 @@ jobs:
           {
             "version": "${{ steps.version.outputs.version }}",
             "released_at": "${{ steps.hashes.outputs.released_at }}",
-            "worker_hash": "${{ steps.hashes.outputs.worker_hash }}",
+            "worker_hash": "${{ steps.bundle.outputs.worker_hash }}",
+            "worker_identity_hash": "${{ steps.hashes.outputs.worker_identity_hash }}",
+            "bundle_hash": "${{ steps.bundle.outputs.bundle_hash }}",
             "admin_hash": "${{ steps.hashes.outputs.admin_hash }}",
             "liff_hash": "${{ steps.hashes.outputs.liff_hash }}",
             "bundle_url": "${bundle_url}",

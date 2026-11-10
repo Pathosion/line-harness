@@ -3,8 +3,9 @@
  *
  * Reads a release bundle (`bundle.tar.gz`) produced by the build pipeline and
  * splits it into worker / admin / liff / migrations buckets. Computes hashes
- * that **must** match `apps/worker/scripts/inject-version.ts` byte-for-byte so
- * fork-detection / tamper-detection during self-update behaves correctly.
+ * for the shipped bytes. Worker artifact integrity uses its final raw checksum;
+ * fork detection separately uses the first-pass identity embedded by
+ * `apps/worker/scripts/inject-version.ts`.
  *
  * Phase 2: Node-only (uses `node:zlib` + `tar-stream`). A Workers-runtime
  * variant lands in Phase 5.
@@ -12,8 +13,10 @@
 
 import { createHash } from 'node:crypto';
 import { createGunzip } from 'node:zlib';
-import type { Readable } from 'node:stream';
+import { Transform, type Readable } from 'node:stream';
 import { extract as tarExtract } from 'tar-stream';
+import type { ReleaseEntry } from './types.js';
+import { validateReleaseChecksums } from './release-checksums.js';
 
 export interface ParsedBundle {
   workerJs: Buffer;
@@ -137,17 +140,46 @@ function routeEntry(result: ParsedBundle, name: string, buf: Buffer): void {
   // Anything else (e.g. tarball-level metadata, future buckets) is ignored.
 }
 
+type ReleaseChecksums = Pick<ReleaseEntry, 'worker_hash' | 'worker_identity_hash' | 'admin_hash' | 'liff_hash' | 'bundle_hash'>;
+
+/** Validate exact archive bytes before any component is allowed to execute. */
+export async function parseAndVerifyReleaseBundle(input: Readable, expected: ReleaseChecksums): Promise<ParsedBundle> {
+  validateReleaseChecksums(expected);
+  const hash = createHash('sha256');
+  const observed = new Transform({ transform(chunk, _encoding, next) { hash.update(chunk); next(null, chunk); } });
+  const onError = (error: Error) => observed.destroy(error);
+  input.on('error', onError);
+  try {
+    const bundle = await parseBundleStream(input.pipe(observed));
+    const archiveHash = `sha256:${hash.digest('hex')}`;
+    if (expected.bundle_hash !== undefined && archiveHash !== expected.bundle_hash) throw new Error('release archive hash mismatch');
+    const components = verifyBundleHashes(bundle);
+    // Historical two-pass releases embedded their first-pass identity in the
+    // worker_hash field. Only a trusted, exact whole-archive checksum can seal
+    // those old bytes; an unsealed identity mismatch is never relaxed.
+    if (expected.worker_identity_hash === undefined && expected.bundle_hash === archiveHash) {
+      assertUiHashesMatch(components, expected);
+    } else {
+      assertHashesMatch(components, expected);
+    }
+    if (!bundle.workerJs.length) throw new Error('Release archive has no Worker entry point');
+    return bundle;
+  } catch (error) {
+    input.destroy(); observed.destroy(); throw error;
+  } finally { input.off('error', onError); }
+}
+
 /**
  * Compute the canonical hashes for a parsed bundle.
  *
- * **Algorithm must stay byte-compatible with `inject-version.ts`** in
+ * **Hash algorithm must stay byte-compatible with `inject-version.ts`** in
  * `apps/worker/scripts/`:
  *   - worker → `sha256:` + SHA256 of the raw worker bundle bytes
  *   - admin/liff → `sha256:` + SHA256 of `{key}\0{content}\0` for every entry,
  *                   keys sorted lexicographically (forward-slash separator).
  *
- * If you change this, you must change inject-version.ts in lockstep — fork
- * detection and update-time tamper checks compare these values.
+ * The same raw hash algorithm produces two different Worker values: the first
+ * pass becomes its self-reported identity, the final pass seals shipped bytes.
  */
 export function verifyBundleHashes(b: ParsedBundle): BundleHashes {
   return {
@@ -193,6 +225,10 @@ export function assertHashesMatch(
       `bundle worker hash mismatch (tampered? ${computed.worker} vs ${expected.worker_hash})`,
     );
   }
+  assertUiHashesMatch(computed, expected);
+}
+
+function assertUiHashesMatch(computed: BundleHashes, expected: { admin_hash: string; liff_hash: string }): void {
   if (computed.admin !== expected.admin_hash) {
     throw new Error('bundle admin hash mismatch');
   }

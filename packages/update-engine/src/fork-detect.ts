@@ -1,10 +1,11 @@
+import { validateReleaseChecksums } from './release-checksums.js';
 import { findRelease } from './manifest.js';
 import type { CurrentVersion, ForkStatus, Manifest } from './types.js';
 
 /**
  * Detect whether the currently-deployed harness is a vanilla build (i.e. it
  * matches a known release in the manifest by version AND all three component
- * hashes) or a fork (any deviation from the manifest).
+ * identities) or a fork (any deviation from the manifest).
  *
  * Hashes are compared in priority order `worker > admin > liff` so the caller
  * gets a single, deterministic reason string instead of a list of mismatches.
@@ -23,7 +24,10 @@ export function detectFork(
     };
   }
 
-  if (current.worker_hash !== matched.worker_hash) {
+  try { validateReleaseChecksums(matched); }
+  catch { return { kind: 'fork', reason: 'invalid release checksum contract' }; }
+
+  if (current.worker_hash !== (matched.worker_identity_hash ?? matched.worker_hash)) {
     return { kind: 'fork', reason: 'worker hash mismatch (custom build)' };
   }
   if (current.admin_hash !== matched.admin_hash) {

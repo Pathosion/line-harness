@@ -202,6 +202,7 @@ app.post('/start', async (c) => {
       adminUrl: c.env.ADMIN_PUBLIC_URL,
       liffUrl: c.env.LIFF_PUBLIC_URL,
       currentWorkerBundleUrl: currentRelease.bundle_url,
+      currentRelease,
     });
   } catch (err) {
     // Setup failure (before snapshot row creation). No tracking id to

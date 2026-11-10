@@ -1,7 +1,12 @@
 export interface ReleaseEntry {
   version: string;
   released_at: string;
+  /** SHA256 of the exact packaged worker/index.js bytes. */
   worker_hash: string;
+  /** Embedded build identity; omitted by legacy manifests. */
+  worker_identity_hash?: string;
+  /** SHA256 of the complete compressed release archive, when available. */
+  bundle_hash?: string;
   admin_hash: string;
   liff_hash: string;
   bundle_url: string;
