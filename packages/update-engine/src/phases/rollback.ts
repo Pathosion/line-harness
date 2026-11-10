@@ -1,4 +1,7 @@
-import type { UpdateContext } from '../types.js';
+import { createHash } from 'node:crypto';
+import { Readable } from 'node:stream';
+import type { ReleaseEntry, UpdateContext } from '../types.js';
+import { parseAndVerifyReleaseBundle } from '../bundle.js';
 import type { EventEmitter } from '../events.js';
 import { listWorkerBindings, putWorkerScript } from '../cf-api/workers.js';
 import { rollbackPagesDeployment } from '../cf-api/pages.js';
@@ -10,8 +13,10 @@ import { rollbackPagesDeployment } from '../cf-api/pages.js';
  * are the "known-good" coordinates we revert to if Apply or Verify fails.
  */
 export interface RollbackSnapshot {
-  /** Fully-qualified URL where the previous Worker bundle bytes can be fetched (e.g. R2 signed URL). */
+  /** Previous release tar.gz or raw Worker snapshot, verified against trusted artifact hashes. */
   snapshotWorkerBundleUrl: string;
+  /** Trusted previous manifest entry; never substitute the runtime identity for an artifact hash. */
+  release?: ReleaseEntry;
   /** CF Pages deployment id to revert the admin project to. */
   snapshotAdminDeployment: string;
   /** CF Pages deployment id to revert the liff project to. */
@@ -33,7 +38,7 @@ async function readBodyExcerpt(res: Response): Promise<string> {
  * Re-runs the deploy steps in reverse semantic order using the snapshot
  * captured by the orchestrator BEFORE the failed update:
  *
- *   1. Fetch the previous Worker bundle bytes from `snapshotWorkerBundleUrl`.
+ *   1. Fetch and verify the previous artifact; extract worker/index.js from release tar.gz.
  *   2. List the Worker's current bindings — CF wipes bindings on every PUT,
  *      so we re-attach them. Even though the new Worker may have crashed,
  *      its bindings are the customer's source of truth (they aren't part
@@ -71,8 +76,33 @@ export async function runRollback(
       `rollback: failed to fetch snapshot worker bundle from ${snap.snapshotWorkerBundleUrl}: HTTP ${res.status} ${excerpt}`,
     );
   }
-  const bytes = Buffer.from(await res.arrayBuffer());
+  const expected = snap.release ?? ctx.current;
+  if (snap.release && (snap.release.version !== ctx.current.version
+      || (snap.release.worker_identity_hash ?? snap.release.worker_hash) !== ctx.current.worker_hash
+      || snap.release.admin_hash !== ctx.current.admin_hash || snap.release.liff_hash !== ctx.current.liff_hash)) {
+    throw new Error('rollback: previous release does not match the current build identity');
+  }
+  const artifact = Buffer.from(await res.arrayBuffer());
+  let bytes: Buffer = artifact;
+  if (artifact[0] === 0x1f && artifact[1] === 0x8b) {
+    const bundle = await parseAndVerifyReleaseBundle(Readable.from([artifact]), expected);
+    bytes = bundle.workerJs;
+    // The archive verifier already seals every extracted byte, including legacy
+    // archives whose worker_hash was an identity rather than a raw checksum.
+    return restoreWorkerAndPages(ctx, snap, ev, bytes);
+  }
+  // Also verify raw snapshots. Neither a missing entry point nor an unverified
+  // historical URL may be uploaded as executable Worker code.
+  const expectedHash = expected.worker_hash;
+  const actualHash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+  if (!bytes.length || !/^sha256:[a-f0-9]{64}$/.test(expectedHash) || actualHash !== expectedHash) {
+    throw new Error('rollback: previous Worker hash mismatch or missing verified entry point');
+  }
 
+  return restoreWorkerAndPages(ctx, snap, ev, bytes);
+}
+
+async function restoreWorkerAndPages(ctx: UpdateContext, snap: RollbackSnapshot, ev: EventEmitter, bytes: Buffer): Promise<void> {
   // Step 2 + 3: re-PUT the old worker with current bindings preserved.
   // listWorkerBindings reads the live state — even mid-rollback this is
   // what the customer expects to keep (D1/R2/KV ids, secrets, env vars).

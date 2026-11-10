@@ -19,6 +19,7 @@
  * `release-entry.json` is a JSON file containing a single ReleaseEntry.
  */
 
+import { validateReleaseChecksums } from '../../packages/update-engine/src/release-checksums.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { argv, exit, stderr } from 'node:process';
@@ -26,7 +27,12 @@ import { argv, exit, stderr } from 'node:process';
 export interface ReleaseEntry {
   version: string;
   released_at: string;
+  /** SHA256 of the exact packaged worker/index.js bytes. */
   worker_hash: string;
+  /** Embedded build identity; omitted by legacy manifests. */
+  worker_identity_hash?: string;
+  /** SHA256 of the complete compressed release archive, when available. */
+  bundle_hash?: string;
   admin_hash: string;
   liff_hash: string;
   bundle_url: string;
@@ -46,6 +52,7 @@ export interface Manifest {
 
 export function updateManifest(opts: { manifestPath: string; release: ReleaseEntry }): void {
   const { manifestPath, release } = opts;
+  validateReleaseChecksums(release);
 
   const manifest: Manifest = existsSync(manifestPath)
     ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as Manifest)

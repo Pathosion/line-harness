@@ -1,3 +1,4 @@
+import { validateReleaseChecksums } from './release-checksums.js';
 import type { Manifest, ReleaseEntry } from './types.js';
 
 /**
@@ -21,6 +22,7 @@ export async function fetchManifest(url: string): Promise<Manifest> {
       `unsupported manifest schema_version ${body.schema_version}`,
     );
   }
+  for (const release of body.releases) validateReleaseChecksums(release);
   return body;
 }
 

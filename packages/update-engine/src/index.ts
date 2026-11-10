@@ -1,9 +1,7 @@
 import { Readable } from 'node:stream';
-import type { UpdateContext, UpdateEvent } from './types.js';
+import type { ReleaseEntry, UpdateContext, UpdateEvent } from './types.js';
 import {
-  parseBundleStream,
-  verifyBundleHashes,
-  assertHashesMatch,
+  parseAndVerifyReleaseBundle,
 } from './bundle.js';
 import { getLatestDeployment } from './cf-api/pages.js';
 import {
@@ -58,6 +56,8 @@ export interface RunUpdateOpts {
   /** URL where the *current* (pre-update) Worker bundle can be fetched
    *  for rollback. Caller uploads this before invoking runUpdate. */
   currentWorkerBundleUrl: string;
+  /** Trusted manifest entry for the previous release, not its self-reported identity. */
+  currentRelease?: ReleaseEntry;
 }
 
 /**
@@ -181,11 +181,9 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
       if (!res.body) {
         throw new Error('bundle response has no body');
       }
-      const bundle = await parseBundleStream(
-        Readable.fromWeb(res.body as any),
+      const bundle = await parseAndVerifyReleaseBundle(
+        Readable.fromWeb(res.body as any), ctx.target,
       );
-      const computed = verifyBundleHashes(bundle);
-      assertHashesMatch(computed, ctx.target);
 
       // Step 6: apply (destructive).
       await runApply(ctx, bundle, ev);
@@ -221,6 +219,7 @@ export async function runUpdate(opts: RunUpdateOpts): Promise<UpdateHandle> {
             ctx,
             {
               snapshotWorkerBundleUrl: snap.snapshot_worker_url,
+              release: opts.currentRelease,
               snapshotAdminDeployment: snap.snapshot_admin_deployment,
               snapshotLiffDeployment: snap.snapshot_liff_deployment,
             },

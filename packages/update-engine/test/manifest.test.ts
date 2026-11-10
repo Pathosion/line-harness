@@ -128,3 +128,14 @@ describe('compareSemver', () => {
     expect(compareSemver('0.7.0', '0.6.0')).toBeGreaterThan(0);
   });
 });
+
+
+it('refuses malformed optional artifact/identity/archive checksums without changing legacy field handling', async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const fields of [{ worker_identity_hash: 'not-a-hash' }, { bundle_hash: 'not-a-hash' }]) {
+      globalThis.fetch = vi.fn(async () => Response.json({ ...sampleManifest(), releases: [sampleRelease(fields)] })) as typeof fetch;
+      await expect(fetchManifest('https://example.test/manifest')).rejects.toThrow(/checksum/);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});

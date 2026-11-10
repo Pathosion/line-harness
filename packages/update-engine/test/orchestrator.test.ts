@@ -1,3 +1,4 @@
+import { workerGuardResponse } from './worker-guard-fixture.js';
 import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll, vi } from 'vitest';
 import { execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -174,7 +175,7 @@ const sampleRelease = (
 
 const sampleCurrent = (): CurrentVersion => ({
   version: '0.7.0',
-  worker_hash: '',
+  worker_hash: `sha256:${createHash('sha256').update('OLD_WORKER_BYTES').digest('hex')}`,
   admin_hash: '',
   liff_hash: '',
 });
@@ -265,6 +266,7 @@ function makeFetch(
   let adminDeploymentCalls = 0;
 
   return vi.fn(async (url: string, init?: RequestInit) => {
+    const identity = workerGuardResponse(url); if (identity) return identity;
     const method = (init?.method ?? 'GET').toUpperCase();
 
     // Bundle download from BUNDLE_URL — returns the tarball as a stream.
@@ -317,6 +319,10 @@ function makeFetch(
       return makeResponse(o);
     }
 
+    if (url.endsWith(`/workers/scripts/${WORKER_NAME}/settings`)) return makeResponse({ ok: true, status: 200, body: { result: {
+      compatibility_date: '2024-12-01', compatibility_flags: ['nodejs_compat'], bindings: [],
+    } } });
+
     // Worker bindings GET (apply + rollback).
     if (url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`)) {
       const o = overrides.workerGet ?? {
@@ -328,7 +334,7 @@ function makeFetch(
     }
 
     // Worker script PUT (apply + rollback) and GET (preflight existence).
-    if (url.endsWith(`/workers/scripts/${WORKER_NAME}`)) {
+    if (url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`)) {
       if (method === 'PUT') {
         const o = overrides.workerPut ?? {
           ok: true,
@@ -681,7 +687,8 @@ describe('runUpdate orchestrator', () => {
     // reject the outer Promise and never reach the handle stage.
     const baseFetch = makeFetch(fixture);
     globalThis.fetch = vi.fn(async (url: string, init?: RequestInit) => {
-      const method = (init?.method ?? 'GET').toUpperCase();
+      const identity = workerGuardResponse(url); if (identity) return identity;
+    const method = (init?.method ?? 'GET').toUpperCase();
       if (
         method === 'GET' &&
         (url.includes(`/pages/projects/${ADMIN_PROJECT}/deployments`) ||

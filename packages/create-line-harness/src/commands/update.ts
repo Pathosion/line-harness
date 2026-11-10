@@ -8,9 +8,7 @@ import {
   detectFork,
   findLatestUpgrade,
   compareSemver,
-  parseBundleStream,
-  verifyBundleHashes,
-  assertHashesMatch,
+  parseAndVerifyReleaseBundle,
   executeD1Query,
   putWorkerScript,
   listWorkerBindings,
@@ -514,11 +512,9 @@ export async function runUpdate(repoDir: string): Promise<void> {
     const bRes = await fetch(upgrade.bundle_url);
     if (!bRes.ok) throw new Error(`bundle fetch HTTP ${bRes.status}`);
     if (!bRes.body) throw new Error("bundle response has no body");
-    bundle = await parseBundleStream(
-      Readable.fromWeb(bRes.body as Parameters<typeof Readable.fromWeb>[0]),
+    bundle = await parseAndVerifyReleaseBundle(
+      Readable.fromWeb(bRes.body as Parameters<typeof Readable.fromWeb>[0]), upgrade,
     );
-    const hashes = verifyBundleHashes(bundle);
-    assertHashesMatch(hashes, upgrade);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     s.stop(pc.red(`Bundle 検証失敗: ${msg}`));

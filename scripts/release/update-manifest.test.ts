@@ -129,3 +129,14 @@ describe('updateManifest', () => {
     );
   });
 });
+
+
+it('preserves the separated checksums and rejects a malformed new checksum contract', () => {
+  const dir = makeTmpDir(), manifestPath = join(dir, 'manifest.json');
+  try {
+    const release = makeEntry('1.0.0', { worker_hash: 'sha256:' + 'a'.repeat(64), worker_identity_hash: 'sha256:' + 'b'.repeat(64), bundle_hash: 'sha256:' + 'c'.repeat(64) });
+    updateManifest({ manifestPath, release });
+    expect(JSON.parse(readFileSync(manifestPath, 'utf8')).releases[0]).toEqual(release);
+    expect(() => updateManifest({ manifestPath, release: { ...release, version: '1.0.1', worker_identity_hash: 'bad' } })).toThrow(/checksum/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

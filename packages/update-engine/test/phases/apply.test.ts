@@ -1,7 +1,9 @@
+import { workerGuardResponse } from '../worker-guard-fixture.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import { runApply } from '../../src/phases/apply.js';
 import { createEventEmitter } from '../../src/events.js';
+import type { WorkerBinding } from '../../src/cf-api/workers.js';
 import type { ParsedBundle } from '../../src/bundle.js';
 import type {
   UpdateContext,
@@ -147,7 +149,13 @@ function makeRouter(routes: RouterRoutes): ReturnType<typeof vi.fn> {
   };
 
   return vi.fn(async (url: string, init?: RequestInit) => {
+    const identity = workerGuardResponse(url); if (identity) return identity;
     const method = (init?.method ?? 'GET').toUpperCase();
+
+    if (url.endsWith(`/workers/scripts/${WORKER_NAME}/settings`)) {
+      const body = routes.bindings?.defaults?.body as { result?: WorkerBinding[] } | undefined;
+      return respond({ body: { result: { compatibility_date: '2024-12-01', compatibility_flags: ['nodejs_compat'], bindings: body?.result ?? [] } } });
+    }
 
     // D1 query (per migration call).
     if (url.includes(`/d1/database/${D1_ID}/query`)) {
@@ -159,7 +167,7 @@ function makeRouter(routes: RouterRoutes): ReturnType<typeof vi.fn> {
     if (url.endsWith(`/workers/scripts/${WORKER_NAME}/bindings`)) {
       return respond(next('bindings'));
     }
-    if (url.endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
+    if (url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) && method === 'PUT') {
       return respond(next('workerPut'));
     }
 
@@ -325,7 +333,7 @@ describe('runApply', () => {
     );
     const workerPutIdx = findIdx(
       (url, init) =>
-        url.endsWith(`/workers/scripts/${WORKER_NAME}`) &&
+        url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) &&
         (init?.method ?? 'GET').toUpperCase() === 'PUT',
     );
     const adminTokenIdx = findIdx((url) =>
@@ -393,7 +401,7 @@ describe('runApply', () => {
     const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
     const workerPut = calls.find(
       ([url, init]) =>
-        url.endsWith(`/workers/scripts/${WORKER_NAME}`) &&
+        url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) &&
         (init?.method ?? 'GET').toUpperCase() === 'PUT',
     );
     expect(workerPut).toBeUndefined();
@@ -511,7 +519,7 @@ describe('runApply', () => {
     const calls = fetchMock.mock.calls as Array<[string, RequestInit?]>;
     const putCall = calls.find(
       ([url, init]) =>
-        url.endsWith(`/workers/scripts/${WORKER_NAME}`) &&
+        url.split('?')[0].endsWith(`/workers/scripts/${WORKER_NAME}`) &&
         (init?.method ?? 'GET').toUpperCase() === 'PUT',
     );
     expect(putCall).toBeDefined();
@@ -519,6 +527,6 @@ describe('runApply', () => {
     const metadataBlob = fd.get('metadata') as Blob;
     const metadataText = await metadataBlob.text();
     const metadata = JSON.parse(metadataText);
-    expect(metadata.bindings).toEqual(existingBindings);
+    expect(metadata.bindings).toEqual(existingBindings.map(binding => ({ name: binding.name, type: 'inherit' })));
   });
 });
